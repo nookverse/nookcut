@@ -25,6 +25,7 @@ import argparse
 import json
 import sys
 
+from . import __version__
 from . import pipeline as pl
 from .brief import Brief
 from .errors import Busy, Cancelled, EnvironmentNotReady, NookCutError, as_nookcut
@@ -103,6 +104,7 @@ def _step(fn, name: str, project: str, quiet: bool, *args):
 
 def _main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="nookcut", description="Raw recording in, viral short out.")
+    ap.add_argument("--version", action="version", version=f"nookcut {__version__}")
     ap.add_argument("-v", "--verbose", action="store_true", help="show full error details")
     ap.add_argument("-q", "--quiet", action="store_true", help="no progress bar")
     sub = ap.add_subparsers(dest="cmd", required=True)

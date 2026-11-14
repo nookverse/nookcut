@@ -127,7 +127,8 @@ playbook (see `gemini-extension.json`), not contributor guidance.
 ## Known gaps
 
 - Not published yet (PyPI name `nookcut`, registry entry `io.github.nookverse/nookcut` in `server.json`).
-- The Docker image has never been built or run.
+- The Docker image has never been built or run (the README marks it experimental).
+- Windows isn't covered by CI.
 - The `c`/`q` keys of `nookcut watch` haven't been tested in a real terminal.
 - Detection is tuned on action games (death = fade after a red vignette); other genres fall back
   to the generic highlights template.

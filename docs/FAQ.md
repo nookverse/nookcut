@@ -44,9 +44,11 @@ Pass `wait=false` to `analyze_video`, `render_video` or `auto_edit`. You get a j
 
 ## Output
 
-**Is the music safe from copyright claims?**
-The score is synthesized from scratch for each video, with no samples, so there's nothing to match
-against. If you supply your own track (`music: file`), you're responsible for having the rights to
+**Will the music get copyright claims?**
+The score is synthesized from scratch for each video, with no samples or existing recordings, so
+there's no source track for a matching system to find. Automated systems occasionally misfire on
+original music; if that happens, dispute the claim and explain the score was generated for your
+video. If you supply your own track (`music: file`), you're responsible for having the rights to
 it. Trending platform sounds have to be added in the platform's own app.
 
 **Can I change the captions?**
@@ -73,6 +75,11 @@ including the free edition (Workspace > Console > Lua).
 **Which orientations and lengths are supported?**
 Vertical (9:16), square (1:1) and wide (16:9), with any length limit of 10 seconds or more. NookCut
 warns you if a platform's limit is shorter than your setting.
+
+**Does it work on Windows?**
+The CLI and MCP server should work (install ffmpeg with `winget install Gyan.FFmpeg`), but Windows
+isn't covered by CI yet, and `nookcut service` (the shared background server) supports only macOS and
+Linux. Reports from Windows users are very welcome.
 
 ## Performance
 

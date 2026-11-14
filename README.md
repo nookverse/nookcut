@@ -21,11 +21,14 @@ included), and writes a publish kit with titles, hashtags and region-aware posti
 - **Online is optional.** If you allow it, your agent can research trends with its own web search to
   sharpen hooks and hashtags. Nothing depends on it.
 
+> **Status: alpha (0.1).** It works end to end and is tested on macOS and Linux. Expect rough edges,
+> and please [report them](https://github.com/nookverse/nookcut/issues).
+
 ## Contents
 
 - [Quick start](#quick-start)
 - [Requirements](#requirements)
-- [Install](#install)
+- [Install](#install) · [Update and uninstall](#update-and-uninstall)
 - [Connect an agent](#connect-an-agent)
 - [Use it from the command line](#use-it-from-the-command-line)
 - [MCP tools](#mcp-tools)
@@ -62,6 +65,12 @@ folder you can open in DaVinci Resolve. To let an agent do it, see [Connect an a
 - Optional: a GPU. NookCut encodes on NVIDIA (NVENC), AMD (AMF / VA-API), Intel (Quick Sync / VA-API)
   or Apple (VideoToolbox) when one works, and falls back to the CPU otherwise.
 
+| Platform | Status |
+|---|---|
+| macOS | Supported and tested (CI + daily use) |
+| Linux | Supported and tested in CI |
+| Windows | CLI and MCP server should work but aren't tested in CI yet; `nookcut service` is macOS/Linux only |
+
 ## Install
 
 ```bash
@@ -77,6 +86,25 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[mcp]"
 ```
 
 The `[mcp]` extra installs the MCP SDK for the server. The CLI alone needs no third-party packages.
+Check it worked with `nookcut --version` and `nookcut check`.
+
+## Update and uninstall
+
+```bash
+pipx upgrade nookcut               # or: pipx install --force "nookcut[mcp] @ git+https://github.com/nookverse/nookcut.git"
+nookcut service restart            # only if you use the shared server
+```
+
+To remove everything NookCut set up:
+
+```bash
+nookcut service uninstall          # if you installed the shared server
+claude mcp remove nookcut -s user  # or remove "nookcut" from your agent's MCP config
+pipx uninstall nookcut
+rm -rf ~/.config/nookcut ~/.nookcut ~/.claude/skills/nookcut-editor
+```
+
+Your project folders (videos, publish kits) are yours; delete them by hand if you want.
 
 ## Connect an agent
 
@@ -106,7 +134,9 @@ prompt and the `nookcut://skill` resource, so agents without a skills system sti
 
 ```bash
 nookcut make PROJECT --source raw.mp4 --title "..." [--game "..."] [--type gameplay|talking|sports|tutorial|generic]
-             [--orientation vertical|square|wide] [--max 60] [--region "United States"] [--music ai|none|file]
+             [--orientation vertical|square|wide] [--max 60] [--region "United States"] [--language en]
+             [--platforms youtube_shorts,tiktok,instagram_reels] [--music ai|none|file] [--music-file song.mp3]
+             [--source-audio keep|duck|mute] [--template comeback|victory|highlights] [--name file-name] [--online]
 nookcut when India                 # posting windows in your own time zone
 nookcut copy show PROJECT          # other caption, title and hashtag options
 nookcut watch PROJECT              # live progress of any job on that project, even one your agent started
@@ -199,7 +229,7 @@ with `cancel_job` or `nookcut cancel PROJECT`.
 
 ```bash
 NOOKCUT_TOKEN=<long-random-string> NOOKCUT_ALLOWED_DIRS=/srv/media nookcut-mcp --transport http --host 0.0.0.0
-# or with Docker (ffmpeg and a font included)
+# or with Docker (ffmpeg and a font included; experimental, the image isn't tested in CI yet)
 docker build -t nookcut . && docker run -p 8765:8765 -e NOOKCUT_TOKEN=<long-random-string> -v /srv/media:/media nookcut
 ```
 
@@ -223,7 +253,7 @@ to the internet.
    facts from your brief and the analysis (death count, game name, length) and wrapped to fit the
    screen.
 4. **Music.** A score is synthesized from scratch (taiko, pulse or cinematic), with hits on the cuts,
-   then mastered. There are no samples, so there's nothing to get a copyright claim for.
+   then mastered. It uses no samples or existing recordings, so there's no source track to match.
 5. **Render.** Segments render in parallel on your GPU when possible, then they're joined and mixed
    with the music. The original audio is ducked under it.
 
@@ -243,8 +273,9 @@ See **[docs/FAQ.md](docs/FAQ.md)**. Short answers:
 
 - **Does it need the internet?** No. Every step works offline.
 - **Do I need an API key or subscription?** No.
-- **Is the music safe from copyright claims?** It's generated from scratch for each video, so it's yours.
-  If you use your own track, you need the rights to it.
+- **Will the music get copyright claims?** It's synthesized from scratch for each video, with no
+  samples, so there's no existing track to match. Automated systems can still misfire now and then;
+  if one does, you can dispute it. If you use your own track, you need the rights to it.
 - **Does it only work for games?** No. Detection is best tuned for action games, and other videos use
   the highlights template.
 

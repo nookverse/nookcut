@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `nookcut --version`.
+- README: platform support table, alpha status, update and uninstall steps, full `make` options.
+
+### Changed
+- Music wording no longer promises immunity from copyright claims (it has no source track to match).
+- Docker image marked experimental until it's tested in CI.
+- Editor skill: clearer analyze/research step, guidance for non-game videos and language packs, and a
+  rule against invented facts in captions.
+
 ## [0.1.0] - 2026-11-14
 
 First public release.

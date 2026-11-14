@@ -47,14 +47,16 @@ Ask about going online **once per project** and only if you can search. If the u
 you cannot search, everything stays offline; do not ask again. Call `create_project` (with
 `online` set to their answer) and relay any `warnings` (e.g. a platform's length cap).
 
-## 2. Research (optional: only when `online` is true)
+## 2. Analyze (and research, only if `online` is true)
 
-Start `analyze_video` with `wait=false` (it takes a minute or more), then poll `job_status`.
-**Offline (the default):** skip research. After planning, call `suggest_copy`: it gives caption
-options per segment, titles, a description, hashtags and a file name from the built-in library.
-Say once that hashtags are generic starters, not live trends.
-**Online (user said yes):** research while analysis runs. Search, in the audience **region and
-language** when given:
+Start `analyze_video` with `wait=false` (it takes a minute or more), then poll `job_status` and
+report progress.
+
+- **Offline (the default):** nothing else to do now. In step 3, `suggest_copy` supplies the captions,
+  titles, description, hashtags and file name from the built-in library. Tell the user once that
+  those hashtags are generic starters, not live trends.
+- **Online (the user said yes):** research while the analysis runs. Search, in the audience's
+  **region and language** when given:
 
 1. **What is trending now** for this game/topic: recent high-view videos, new
    updates/patches/DLC/seasons, memes, community talking points. Prefer the last 30 days.
@@ -72,11 +74,15 @@ claim. Keep it to the 3-5 most useful points.
 
 ## 3. Plan and captions
 
-1. Check the analysis summary makes sense (deaths, win, final attempt). If the win is missing or
-   wrong, ask the user for the timestamp and recreate the project with `key_moments`.
+1. Check that the analysis summary makes sense. For games: deaths, the win, the final attempt. If the
+   win is missing or wrong, ask the user for the timestamp and call `create_project` again with
+   `key_moments`. For talks, sports and tutorials, deaths don't apply: the highlights template picks
+   the moments with the most motion and sound, and `key_moments` with labels pin the parts the user
+   cares about (the label becomes that moment's caption).
 2. `plan_edit` (auto template: comeback / victory / highlights). Captions come from the built-in
-   library in the brief's language (English if no pack is installed; the result says so, and you
-   may translate them yourself).
+   library in the brief's language. If no pack exists for that language, captions come out in
+   English and the result says so: translate them yourself, or tell the user they can add a
+   pack with `nookcut copy init <language>`.
 3. `suggest_copy` for alternatives; apply the best with `update_edit` (or your research when
    online):
    - hook (segment 0): curiosity + stakes in <= 6 words, e.g. "I DIED 7 TIMES|TO GET THIS"
@@ -124,9 +130,12 @@ and wait. Keep "Details (for bug reports)" out of the conversation unless the us
 ## Rules
 
 - Source files are never modified; everything is written inside the project folder.
-- AI music is generated from scratch (no samples), so it is safe from copyright claims. If the user
-  supplies their own track, remind them they need the rights to it. Trending platform sounds must
-  be added in the platform's own app.
+- The music is synthesized from scratch (no samples or existing recordings), so there is no source
+  track to match. Don't promise it can never be claimed: automated systems occasionally misfire,
+  and the user can dispute it. If the user supplies their own track, remind them they need the
+  rights to it. Trending platform sounds must be added in the platform's own app.
+- Never invent facts in captions or titles (boss names, scores, "first try", "no hit"). Use what
+  the analysis, the brief or your research supports.
 - If something fails, report the exact error and what you will try next; never claim success
   without a rendered file.
 - If the original audio is silent, say so and suggest checking their capture settings.
