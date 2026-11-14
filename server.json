@@ -1,0 +1,32 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "io.github.nookverse/nookcut",
+  "title": "NookCut",
+  "description": "Raw recording in, viral short out: moment detection, original music, captions, render, Resolve export.",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/nookverse/nookcut",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "nookcut",
+      "version": "0.1.0",
+      "runtimeHint": "uvx",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "NOOKCUT_ALLOWED_DIRS",
+          "description": "Folders the server may read and write (separated by : or ; on Windows)",
+          "isRequired": false
+        },
+        {
+          "name": "NOOKCUT_FONT",
+          "description": "Path to a bold .ttf for captions if none is found automatically",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

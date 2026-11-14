@@ -1,0 +1,52 @@
+{
+  "_about": "NookCut's built-in offline copy (English). Copy this file to make a pack for another language: `nookcut copy init <lang>`. Keys stay in English; translate only the values. Slots: {n} deaths, {n1} attempts (deaths + 1), {i} death number, {secs} video length, {title}/{TITLE} topic, {game}/{GAME} game name, {label}/{LABEL} first key moment. '|' breaks a caption line. Patterns whose slots are empty are skipped.",
+  "captions": {
+    "hook.comeback": ["I DIED {n} TIMES|TO GET THIS", "{n} DEATHS.|ONE WIN.", "IT TOOK ME|{n1} TRIES", "ATTEMPT #{n1}|HITS DIFFERENT"],
+    "hook.comeback.first": ["THE HARDEST|FIGHT YET", "WATCH HOW|THIS ENDS"],
+    "hook.victory": ["THE HARDEST|FIGHT YET", "WATCH HOW|THIS ENDS", "{TITLE}"],
+    "hook.highlights.gameplay": ["{TITLE}", "WAIT FOR|THE END", "THIS GOT|INSANE"],
+    "hook.highlights.talking": ["{TITLE}", "NOBODY TALKS|ABOUT THIS", "LISTEN TO|THIS"],
+    "hook.highlights.tutorial": ["{TITLE}", "THE TRICK|NOBODY SHOWS", "DO THIS|INSTEAD"],
+    "hook.highlights.sports": ["{TITLE}", "WATCH THE|LAST SECOND", "HOW DID|THAT HAPPEN?"],
+    "hook.highlights.generic": ["{TITLE}", "WAIT FOR|THE END", "YOU WON'T|EXPECT THIS"],
+    "hook.sub": ["WAIT FOR IT", "DON'T BLINK", "WATCH THE END"],
+    "death.top": ["DEATH {i}"],
+    "death.bottom": ["{i} / {n}"],
+    "card.top": ["ATTEMPT #{n1}"],
+    "card.bottom": ["NO MORE MISTAKES", "THIS IS IT", "ONE MORE TRY"],
+    "highlight.first": ["PERFECT TIMING", "LOCKED IN", "NOW WATCH"],
+    "finisher.top": ["THE FINAL|BLOW", "FINISH IT", "THE LAST HIT"],
+    "outro.top": ["VICTORY", "FINALLY", "GG"],
+    "end.comeback.top": ["COULD YOU|DO IT?", "HOW MANY|TRIES FOR YOU?"],
+    "end.comeback.bottom": ["COMMENT YOUR ATTEMPTS", "TELL ME BELOW", "DROP YOUR COUNT"],
+    "end.highlights.top": ["WHICH PART|WAS BEST?", "RATE THIS|1-10", "BEST MOMENT?"]
+  },
+  "titles": {
+    "comeback": ["{title} took me {n1} tries | {game}", "I died {n} times to get this ({game})", "{game}: {title} after {n} deaths",
+                 "Attempt #{n1}: {title}", "{title} took me {n1} tries", "I died {n} times to get this"],
+    "victory": ["{title} | {game}", "{game}: watch how this ends", "{title} - watch how this ends", "{title}"],
+    "highlights.gameplay": ["{title} | {game} highlights", "{game}: wait for the end", "Best moments: {title}", "{title} (wait for the end)"],
+    "highlights.talking": ["{title}", "{title} (watch till the end)", "{title} - let's talk", "{title} (nobody talks about this)"],
+    "highlights.tutorial": ["{title} in {secs} seconds", "{title} - quick guide", "{title}: step by step", "{title}"],
+    "highlights.sports": ["{title} | highlights", "Best moments: {title}", "{title} - watch the last play", "{title}"],
+    "highlights.generic": ["{title}", "{title} | best moments", "Wait for the end: {title}", "{title} (watch till the end)"]
+  },
+  "description": {
+    "comeback": ["{n} deaths. Attempt #{n1}. {title} - {game}.", "{n} deaths, then this. {title}."],
+    "victory": ["{title} - {game}. Watch how it ends.", "{title}. Watch how it ends."],
+    "highlights": ["{title} - {game}. The best moments in {secs} seconds.", "{title}. The best moments in {secs} seconds."]
+  },
+  "cta": {
+    "comeback": ["How many tries did it take you? Tell me in the comments.", "Could you do it in fewer tries? Comment your count."],
+    "victory": ["Could you do it? Tell me in the comments.", "What would you have done? Comment below."],
+    "highlights": ["Which part was best? Tell me in the comments.", "Rate this 1-10 in the comments."]
+  },
+  "hashtags": {
+    "type": {"gameplay": ["#gaming", "#gameplay"], "talking": ["#podcast", "#clips"], "tutorial": ["#tutorial", "#howto", "#tips"],
+             "sports": ["#sports", "#highlights"], "generic": ["#highlights"]},
+    "template": {"comeback": ["#nevergiveup"], "victory": [], "highlights": []},
+    "platform": {"youtube_shorts": ["#shorts"], "tiktok": ["#fyp"], "instagram_reels": ["#reels"],
+                 "facebook_reels": ["#reels"], "youtube": [], "x": []},
+    "game_suffix": ["clips"]
+  }
+}

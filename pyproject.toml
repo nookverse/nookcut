@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nookcut"
+version = "0.1.0"
+description = "Raw recording in, viral short out: an offline MCP server, CLI and agent skill that turns long recordings into captioned short-form videos with original music and a DaVinci Resolve timeline."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Nookverse" }]
+keywords = ["mcp", "model-context-protocol", "video-editing", "ffmpeg", "shorts", "tiktok", "reels",
+            "davinci-resolve", "ai-agents", "offline"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Video :: Non-Linear Editor",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/nookverse/nookcut"
+Documentation = "https://github.com/nookverse/nookcut#readme"
+Issues = "https://github.com/nookverse/nookcut/issues"
+Changelog = "https://github.com/nookverse/nookcut/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.2"]
+
+[project.scripts]
+nookcut = "nookcut.cli:main"
+nookcut-mcp = "nookcut.mcp_server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+nookcut = ["skill/SKILL.md", "copydata/*.json"]

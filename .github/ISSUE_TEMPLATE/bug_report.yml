@@ -1,0 +1,39 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please don't include personal information, private file paths you'd rather
+        keep private, or your footage. For security problems, use private reporting instead (see SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: error
+    attributes:
+      label: Error text
+      description: The error NookCut showed. `nookcut -v ...` prints the full ffmpeg details.
+      render: text
+  - type: textarea
+    id: check
+    attributes:
+      label: Output of `nookcut check`
+      render: json
+    validations:
+      required: true
+  - type: input
+    id: how
+    attributes:
+      label: How were you running it?
+      placeholder: "CLI / Claude Code / Cursor / local model via ... / shared service / Docker"
+  - type: input
+    id: version
+    attributes:
+      label: NookCut version
+      placeholder: "0.1.0 or commit hash"

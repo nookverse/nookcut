@@ -1,0 +1,13 @@
+{
+  "name": "nookcut",
+  "version": "0.1.0",
+  "description": "Raw recording in, viral short out.",
+  "mcpServers": {
+    "nookcut": {
+      "command": "uvx",
+      "args": ["--from", "nookcut[mcp]", "nookcut-mcp"],
+      "timeout": 900000
+    }
+  },
+  "contextFileName": "GEMINI.md"
+}

@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest an idea or improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like to happen?
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Project rules
+      description: NookCut stays free, offline and local (see CONTRIBUTING.md).
+      options:
+        - label: This works without paid services, API keys or network calls
+          required: true
