@@ -70,7 +70,7 @@ tests/mcp_smoke.py   real MCP client over stdio and HTTP, optionally a full clip
 ```
 
 Or by hand: `python3 -m venv .venv && .venv/bin/pip install -e ".[mcp]"`. Needs ffmpeg with
-drawtext (on macOS: `brew install ffmpeg`).
+drawtext (on macOS: `brew install ffmpeg-full` and put it on PATH; plain `ffmpeg` lacks drawtext).
 
 ## Check your change
 

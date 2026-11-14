@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 
 if ! command -v ffmpeg >/dev/null; then
-  echo "ffmpeg is missing. Install it first (macOS: brew install ffmpeg; Linux: sudo apt install ffmpeg)." >&2
+  echo "ffmpeg is missing. Install it first (macOS: brew install ffmpeg-full, then add $(brew --prefix ffmpeg-full)/bin to PATH; Linux: sudo apt install ffmpeg)." >&2
   exit 1
 fi
 

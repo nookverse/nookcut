@@ -11,6 +11,7 @@ All notable changes to this project are documented here. The format follows
 - README: platform support table, alpha status, update and uninstall steps, full `make` options.
 
 ### Changed
+- macOS install hint is now `brew install ffmpeg-full` (Homebrew's plain `ffmpeg` lacks `drawtext`).
 - Music wording no longer promises immunity from copyright claims (it has no source track to match).
 - Docker image marked experimental until it's tested in CI.
 - Editor skill: clearer analyze/research step, guidance for non-game videos and language packs, and a

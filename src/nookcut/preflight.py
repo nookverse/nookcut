@@ -45,7 +45,9 @@ FONT_CANDIDATES = [
 def install_hint() -> str:
     system = platform.system()
     if system == "Darwin":
-        return "brew install ffmpeg   (needs Homebrew: https://brew.sh)"
+        # Homebrew's plain `ffmpeg` is a minimal build without drawtext (captions); ffmpeg-full has it.
+        return ("brew install ffmpeg-full && echo 'export PATH=\"$(brew --prefix ffmpeg-full)/bin:$PATH\"' "
+                ">> ~/.zprofile   (then open a new terminal; needs Homebrew: https://brew.sh)")
     if system == "Windows":
         return "winget install Gyan.FFmpeg   (then reopen your terminal)"
     return "sudo apt install ffmpeg   (Debian/Ubuntu)  or  sudo dnf install ffmpeg   (Fedora)"

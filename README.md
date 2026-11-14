@@ -57,7 +57,9 @@ folder you can open in DaVinci Resolve. To let an agent do it, see [Connect an a
 - **Python 3.10+**
 - **ffmpeg and ffprobe** with `libx264`, `drawtext`, `minterpolate`, `gblur` and `loudnorm`. Most
   builds include them. `nookcut check` tells you what's missing and how to install it:
-  - macOS: `brew install ffmpeg`
+  - macOS: `brew install ffmpeg-full`, then put it on your PATH (it's keg-only):
+    `echo 'export PATH="$(brew --prefix ffmpeg-full)/bin:$PATH"' >> ~/.zprofile`. Homebrew's plain
+    `ffmpeg` is a minimal build without `drawtext`, so captions wouldn't work.
   - Windows: `winget install Gyan.FFmpeg`
   - Debian/Ubuntu: `sudo apt install ffmpeg`
 - **A bold font for captions.** Impact is found automatically on macOS and Windows; elsewhere, set

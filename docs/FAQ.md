@@ -99,7 +99,8 @@ about a second, and half-written files are removed.
 
 **`nookcut check` says something is missing.**
 It prints the install command for your system. Install ffmpeg (a full build), or set
-`NOOKCUT_FONT` if only the font is missing.
+`NOOKCUT_FONT` if only the font is missing. On macOS use `brew install ffmpeg-full` (and put it on your
+PATH): Homebrew's plain `ffmpeg` has no `drawtext`, so it can't draw captions.
 
 **It didn't find the win or the deaths in my video.**
 Give it the moments you know: `key_moments: [{"t": 642.7, "label": "final blow"}]` in
