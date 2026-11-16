@@ -22,6 +22,8 @@ included), and writes a publish kit with titles, hashtags and region-aware posti
 - **Speech captions, offline.** With a one-time `nookcut models install`, NookCut transcribes speech
   with ffmpeg's built-in Whisper filter and captions it word by word, with the spoken word
   highlighted. Talking videos are cut on whole sentences. Without the model, everything else still works.
+- **Dead air out.** The `tighten` template keeps the whole talk and cuts every pause, with clean
+  jump cuts (no model needed).
 - **Online is optional.** If you allow it, your agent can research trends with its own web search to
   sharpen hooks and hashtags. Nothing depends on it.
 
@@ -146,7 +148,7 @@ prompt and the `nookcut://skill` resource, so agents without a skills system sti
 nookcut make PROJECT --source raw.mp4 --title "..." [--game "..."] [--type gameplay|talking|sports|tutorial|generic]
              [--orientation vertical|square|wide] [--max 60] [--region "United States"] [--language en]
              [--platforms youtube_shorts,tiktok,instagram_reels] [--music ai|none|file] [--music-file song.mp3]
-             [--source-audio keep|duck|mute] [--template comeback|victory|highlights] [--name file-name] [--online]
+             [--source-audio keep|duck|mute] [--template comeback|victory|highlights|tighten] [--name file-name] [--online]
              [--subtitles auto|on|off] [--speech-language auto|en|es|...]
 nookcut when India                 # posting windows in your own time zone
 nookcut copy show PROJECT          # other caption, title and hashtag options
@@ -170,7 +172,7 @@ Exit codes: 0 ok, 1 error, 2 environment missing, 3 project busy, 130 cancelled.
 | `create_project` | Saves the brief (title, type, length, orientation, region, music, speech captions, `online` opt-in) |
 | `analyze_video` | Finds deaths, the win, action peaks and silent audio, and transcribes speech (when a model is installed) |
 | `get_transcript` | What is said, as sentences with times, for quotes and cut points |
-| `plan_edit` | Builds the edit from a story template with built-in captions |
+| `plan_edit` | Builds the edit from a story template with built-in captions, or `tighten` (the whole recording minus its pauses) |
 | `suggest_copy` | Offline caption options per segment, plus titles, description, hashtags and a file name |
 | `get_edit` / `update_edit` | Read or change segments and captions |
 | `preview_plan` | A contact sheet image of every segment for approval |
@@ -264,6 +266,8 @@ to the internet.
    - **comeback**: hook → death montage with a counter → "ATTEMPT #N" → best moments → slow-mo finisher → question
    - **victory**: a win without deaths
    - **highlights**: any video, top moments in order
+   - **tighten**: the whole recording with its pauses cut out (jump cuts), for talks, podcasts and
+     tutorials; only when you ask for it, and not shortened to your length limit
 
    Each template is fitted to your length limit.
 3. **Speech (optional).** With a model installed, ffmpeg's `whisper` filter (whisper.cpp) transcribes

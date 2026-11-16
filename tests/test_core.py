@@ -200,6 +200,19 @@ def fake_words(sentences, start=5.0, gap=1.5, per_word=0.4):
     return words
 
 
+class TitleCopy(unittest.TestCase):
+    def test_titles_do_not_restate_the_users_title(self):
+        from nookcut.copywriting import repeats_title, suggest
+        self.assertTrue(repeats_title("It took me 17 tries took me 18 tries | G", "It took me 17 tries"))
+        self.assertTrue(repeats_title("G: It took me 17 tries after 17 deaths", "It took me 17 tries"))
+        self.assertFalse(repeats_title("I died 17 times to get this (G)", "Boss fight"))
+        b = Brief(title="It took me 17 tries", source="x.mp4", game="Ronin Okami")
+        a = fake_analysis()
+        titles = suggest(b, a, plan(b, a), 10)["titles"]
+        self.assertTrue(titles)
+        self.assertFalse([t for t in titles if repeats_title(t, b.title)], titles)
+
+
 class Speech(unittest.TestCase):
     def test_parse_drops_noise_and_hallucinations(self):
         from nookcut.transcribe import parse
@@ -229,6 +242,8 @@ class Speech(unittest.TestCase):
         spans = [(0.0, 4.75), (2.5, 14.75)]                  # (time in cut audio, time in source)
         self.assertEqual(to_source(1.0, spans), 5.75)
         self.assertEqual(to_source(3.0, spans), 15.25)
+        from nookcut.transcribe import map_word
+        self.assertEqual(map_word(2.0, 3.5, spans), (6.75, 7.25))   # can't run into the next stretch
 
     def test_phrases_and_snap(self):
         from nookcut.transcribe import phrases, snap
@@ -281,6 +296,31 @@ class Speech(unittest.TestCase):
         for s in e["segments"]:
             if s["kind"] not in ("death", "card"):
                 self.assertFalse(any(w[0] < s["src_in"] < w[1] or w[0] < s["src_out"] < w[1] for w in words))
+
+    def test_tighten_keeps_the_talk_and_cuts_pauses(self):
+        from nookcut.story import add_speech
+        b = Brief(title="Podcast", source="x.mp4", video_type="talking", max_duration=10)
+        a = fake_analysis()
+        a["voice"] = [(5.0, 8.0), (8.1, 8.2), (12.0, 20.0), (30.0, 45.0)]   # (8.1, 8.2) is a click
+        e = plan(b, a, "tighten")                             # no transcript: the energy decides
+        self.assertEqual([(x["src_in"], x["src_out"]) for x in e["segments"]], [(5.0, 8.0), (12.0, 20.0), (30.0, 45.0)])
+        self.assertEqual(total(e), 26.0)                     # whole talk, not cut down to max_duration
+        words = fake_words(["one two three four five six seven", "eight nine.", "ten eleven twelve"],
+                           start=5.1, gap=5)
+        e = add_speech(plan(b, a, "tighten", words), words, b)
+        self.assertEqual(e["music"], "none")
+        spoken = [w[2] for x in e["segments"] for w in x["words"]]
+        self.assertEqual(spoken, [w[2] for w in words])     # every word captioned once
+        for x in e["segments"]:
+            self.assertTrue(all(x["src_in"] <= w[0] < w[1] <= x["src_out"] for w in x["words"]))
+        a["voice"] = [(5.0, 8.0), (9.0, 10.0), (12.0, 20.0)]   # (9, 10): a sound with no words in it
+        e = plan(b, a, "tighten", words)
+        self.assertEqual([x["src_in"] for x in e["segments"]], [5.0, 12.0])
+        a["voice"] = None
+        with self.assertRaises(ValueError):
+            plan(b, a, "tighten")
+        with self.assertRaises(ValueError):
+            plan(b, a, "montage")
 
     def test_models_registry(self):
         import tempfile, os

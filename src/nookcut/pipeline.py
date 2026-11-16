@@ -32,7 +32,7 @@ from .story import add_speech, plan
 from .preflight import check, speech_status
 from .errors import Cancelled, EnvironmentNotReady, InputError, as_nookcut
 from .models import whisper_model
-from .transcribe import caption_words, sentences, transcribe
+from .transcribe import caption_words, envelope, sentences, speech_regions, transcribe
 from .tasks import Task, project_lock, run
 
 
@@ -88,7 +88,8 @@ def run_analysis(project: str, task: Task | None = None) -> dict:
         return _analyze(project, t)
 
 
-SPEECH_STAGES = (("finding speech", 0.5), ("transcribing speech", 4))
+VOICE_STAGE = ("finding speech", 0.5)          # pauses, for every recording with sound (fast)
+SPEECH_STAGES = (("transcribing speech", 4),)  # only with a speech model
 
 
 def _analyze(project: str, t: Task) -> dict:
@@ -99,25 +100,38 @@ def _analyze(project: str, t: Task) -> dict:
     if brief.subtitles == "on" and not speech["ready"]:
         raise EnvironmentNotReady("Speech captions are turned on, but speech-to-text isn't set up.", speech["how"])
     result = an.analyze(brief.source, p["analysis"], key_moments=brief.key_moments, hwaccel=hw, task=t,
-                        more_stages=SPEECH_STAGES if speech["ready"] else ())
+                        more_stages=(VOICE_STAGE, *(SPEECH_STAGES if speech["ready"] else ())))
+    info = result["signals"]["info"]
+    tracks = [a["index"] for a in info["audio_tracks"] if a["peak_db"] > -60]
+    env = None
+    if tracks:
+        t.begin("finding speech", note="where the talking and the pauses are")
+        env = envelope(brief.source, tracks, t)
+        result["voice"] = speech_regions(env, pad=0.06, join=0.3)
+        with open(p["analysis"], "w") as f:
+            json.dump(result, f)
     out = an.summary(result)
-    out["speech"] = _transcribe(project, brief, result, speech, t)
+    voice = result.get("voice")
+    quiet = info["duration"] - sum(b - a for a, b in voice) if voice else 0
+    out["pauses"] = ("none to cut (non-stop sound)" if tracks and voice is None else
+                     "the recording is silent" if not voice else
+                     f"{quiet:.0f} s of pauses; template 'tighten' cuts them out" if brief.video_type in
+                     ("talking", "tutorial", "generic") else f"{quiet:.0f} s of quiet moments")
+    out["speech"] = _transcribe(project, brief, tracks, env, speech, t, info["duration"])
     return out
 
 
-def _transcribe(project: str, brief: Brief, result: dict, speech: dict, t: Task) -> dict:
+def _transcribe(project: str, brief: Brief, tracks: list, env, speech: dict, t: Task, duration: float) -> dict:
     """Word-level transcript of the live audio tracks, when a model is installed (never required)."""
     p = paths(project)
     if os.path.exists(p["transcript"]):
         os.remove(p["transcript"])  # never keep a transcript of a different analysis
-    info = result["signals"]["info"]
-    tracks = [a["index"] for a in info["audio_tracks"] if a["peak_db"] > -60]
     if not speech["ready"]:
         return {"words": 0, "note": "no speech captions: " + speech.get("how", "")}
     if not tracks:
         return {"words": 0, "note": "the recording is silent"}
     tr = transcribe(brief.source, tracks, whisper_model(), p["transcript"], brief.speech_language, t,
-                    info["duration"])
+                    duration, env=env)
     words = tr["words"]
     if not words:
         return {"words": 0, "model": tr["model"], "note": "no speech found"}
@@ -164,11 +178,15 @@ def make_plan(project: str, template: str | None = None) -> dict:
 
 
 def describe(edit: dict) -> dict:
-    return {"template": edit["template"], "length": ed.total(edit), "segments": [
+    out = {"template": edit["template"], "length": ed.total(edit), "segments": [
         {"i": i, "kind": s["kind"], "at": st, "dur": round(d, 2), "src": [s["src_in"], s["src_out"]],
          "speed": s["speed"], "top": s["top"], "bottom": s["bottom"],
          **({"speech": " ".join(w[2] for w in s["words"])} if s.get("words") else {})}
         for i, (st, d, s) in enumerate(ed.timeline(edit))], "speech_captions": bool(edit.get("subtitles"))}
+    if edit["template"] == "tighten":
+        out["note"] = (f"{edit.get('removed_s', 0):.0f} s of pauses cut out; the whole talk is kept, so max_duration "
+                       "doesn't apply. No generated music under jump cuts.")
+    return out
 
 
 def make_preview(project: str, task: Task | None = None) -> str:
@@ -268,7 +286,7 @@ def make_kit(project: str, video: str, titles: list[str] | None = None, descript
 
 
 MAKE_STAGES = (("reading the source", 1), ("scanning the video", 6), ("measuring loudness", 2),
-               ("detecting moments", 0.2), *SPEECH_STAGES, ("planning", 0.1), ("making music", 1), ("preparing", 0.3),
+               ("detecting moments", 0.2), VOICE_STAGE, *SPEECH_STAGES, ("planning", 0.1), ("making music", 1), ("preparing", 0.3),
                ("rendering segments", 10), ("mixing audio", 0.7), ("finishing", 0.2))
 
 
@@ -294,7 +312,7 @@ def make_all(project: str, brief: Brief, template: str | None = None, out_name: 
     edit = ed.load(paths(project)["edit"])
     deaths = len(found.get("deaths") or [])
     story = {"comeback": f"{deaths} deaths, then the win", "victory": "the win",
-             "highlights": "the top moments"}.get(view["template"], view["template"])
+             "highlights": "the top moments", "tighten": "the whole talk without its pauses"}.get(view["template"], view["template"])
     music = {"none": "no music", "file": "your music file"}.get(edit["music"], f"original {edit['music_style']} score")
     out = {"video": os.path.abspath(video), "publish_kit": os.path.abspath(kit),
            "resolve": resolve, "length_s": view["length"], "template": view["template"],

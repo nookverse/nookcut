@@ -14,6 +14,9 @@ All notable changes to this project are documented here. The format follows
   by SHA-256. This user-run command is NookCut's only network access.
 - Talking and tutorial videos are cut on whole sentences, with sign-offs ("let me know in the
   comments") kept out of the hook and used as the last line. Other videos never cut mid-word.
+- `tighten` template: the whole recording with its pauses cut out (jump cuts, click-free joins), from
+  a speech-band energy scan that every analysis now runs (no model needed). `auto_edit` takes a
+  `template`.
 - `get_transcript` MCP tool and `nookcut transcript PROJECT`.
 - `captions.srt` in the Resolve kit for platforms and editors.
 - Brief options `subtitles` (auto | on | off) and `speech_language`; `check_environment` reports
@@ -22,6 +25,8 @@ All notable changes to this project are documented here. The format follows
 - README: platform support table, alpha status, update and uninstall steps, full `make` options.
 
 ### Changed
+- Built-in titles no longer restate the user's title ("It took me 17 tries took me 18 tries").
+- The preview contact sheet shows at most 40 segments, sampled evenly.
 - macOS install hint is now `brew install ffmpeg-full` (Homebrew's plain `ffmpeg` lacks `drawtext`).
 - Music wording no longer promises immunity from copyright claims (it has no source track to match).
 - Docker image marked experimental until it's tested in CI.

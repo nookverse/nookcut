@@ -80,7 +80,10 @@ claim. Keep it to the 3-5 most useful points.
    `key_moments`. For talks, sports and tutorials, deaths don't apply: the highlights template picks
    the moments with the most motion and sound, and `key_moments` with labels pin the parts the user
    cares about (the label becomes that moment's caption).
-2. `plan_edit` (auto template: comeback / victory / highlights). Captions come from the built-in
+2. `plan_edit` (auto template: comeback / victory / highlights). If the user wants the **whole**
+   talk/podcast/tutorial with the dead air removed rather than a short, use template `tighten`
+   (the analysis `pauses` line says whether there are pauses to cut); it ignores max_duration and
+   adds no generated music. Captions come from the built-in
    library in the brief's language. If no pack exists for that language, captions come out in
    English and the result says so: translate them yourself, or tell the user they can add a
    pack with `nookcut copy init <language>`.

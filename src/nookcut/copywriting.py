@@ -233,6 +233,17 @@ def game_in_title(brief) -> bool:
     return bool(brief.game) and fold(brief.game).lower() in fold(brief.title).lower()
 
 
+def repeats_title(text: str, title: str) -> bool:
+    """True when a pattern restates what the user's title already says: a repeated two-word phrase
+    ("It took me 17 tries took me 18 tries") or a second number next to one in the title."""
+    words = re.findall(r"\w+", fold(text).lower())
+    pairs = list(zip(words, words[1:]))
+    if len(pairs) != len(set(pairs)):
+        return True
+    title_numbers = re.findall(r"\d+", title)
+    return bool(title_numbers) and len(re.findall(r"\d+", text)) > len(title_numbers)
+
+
 def file_name(brief, deaths: int) -> str:
     parts = [] if not brief.game or game_in_title(brief) else [brief.game]
     parts.append(brief.title)
@@ -276,9 +287,10 @@ def suggest(brief, analysis: dict | None, edit: dict, count: int = 5) -> dict:
     if game_in_title(brief):
         s = {**s, "game": ""}  # "Ronin Okami duel | Ronin Okami" says the name twice
     tkeys = (template,) if group != "highlights" else (f"highlights.{vt}", "highlights.generic")
-    titles = [t for t in options(data, tkeys, s, section="titles") if len(t) <= 100][:count]
-    if not titles:
-        titles = [brief.title]
+    titles = [t for t in options(data, tkeys, s, section="titles")
+              if len(t) <= 100 and not repeats_title(t, brief.title)][:count]
+    plain = [f"{brief.title} | {brief.game}" if brief.game and not game_in_title(brief) else "", brief.title]
+    titles += [t for t in plain if t and t not in titles][:max(0, count - len(titles))]
     summary = pick(options(data, (group,), s, section="description"), seed + "|description")
     cta = pick(options(data, (group,), s, section="cta"), seed + "|cta")
     tags = hashtags(data, brief, template)

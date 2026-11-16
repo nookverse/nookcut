@@ -251,11 +251,12 @@ def auto_edit(source: str, title: str, project_dir: str = "", video_type: str = 
               orientation: str = "vertical", max_duration: float | str = 60, region: str = "",
               language: str = "en", music: str = "ai", source_audio: str = "duck",
               platforms: list[str] | str | None = None, key_moments: list[dict] | None = None,
-              file_name: str = "", subtitles: str = "auto", wait: bool = True) -> dict:
+              file_name: str = "", subtitles: str = "auto", template: str = "", wait: bool = True) -> dict:
     """Make the finished short in ONE call, offline: analyze, plan, captions, original music,
     render, DaVinci Resolve files and publish kit. Only source and title are needed. Best path for
     small or local models. Speech is captioned word by word when a speech model is installed
-    (subtitles: auto|on|off). Takes a few minutes; wait=false returns a job_id for job_status."""
+    (subtitles: auto|on|off). template: empty = auto, or "tighten" to keep the whole recording and
+    cut out its pauses (jump cuts). Takes a few minutes; wait=false returns a job_id for job_status."""
     _ready()
     b = _brief(source, title, video_type, game, orientation, max_duration, region, language, music, "",
                source_audio, platforms, key_moments, False, subtitles)
@@ -263,7 +264,7 @@ def auto_edit(source: str, title: str, project_dir: str = "", video_type: str = 
                                                   pl.slug(title).lower() + "-nookcut")
 
     def work(t):
-        out = pl.make_all(project, b, None, file_name or None, task=t)
+        out = pl.make_all(project, b, template or None, file_name or None, task=t)
         out["project"] = project
         out["next"] = ("Show the user the video and publish_kit. To change captions: suggest_copy + "
                        "update_edit, then render_video.")
@@ -307,7 +308,8 @@ def get_transcript(project_dir: str, start: float = 0, end: float = 0) -> dict:
 @_tool(annotations=WRITES)
 def plan_edit(project_dir: str, template: str = "") -> dict:
     """Step 3. Build the edit from a story template (comeback | victory | highlights; empty = auto),
-    with captions from the built-in library."""
+    with captions from the built-in library. "tighten" instead keeps the whole recording and cuts out
+    its pauses (jump cuts for talks, podcasts, tutorials); the analysis `pauses` line says if it fits."""
     out = pl.make_plan(_path(project_dir, must_exist=True), template or None)
     out["next"] = "suggest_copy for other caption options (or keep these), then preview_plan"
     return out

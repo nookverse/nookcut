@@ -5,6 +5,7 @@
   victory     a win without detected deaths   (hook -> best moments -> finisher -> outro)
   highlights  anything else                   (hook -> top moments in order -> question)
               talking/tutorial videos with a transcript pick whole sentences instead of fixed windows
+  tighten     the whole recording minus its pauses (jump cuts; ask for it, never picked automatically)
 
 Captions come from the offline copy library (copywriting.py) in the brief's language. The agent
 may pick other options (suggest_copy) or, when the user allows web research, rewrite them.
@@ -12,6 +13,7 @@ may pick other options (suggest_copy) or, when the user allows web research, rew
 from __future__ import annotations
 
 import re
+from bisect import bisect_left
 
 from .analyze import best_windows, peak_times
 from .brief import Brief
@@ -216,8 +218,40 @@ def speech_highlights(brief: Brief, analysis: dict, words: list[list]) -> dict:
     return edit
 
 
+TEMPLATES = ("comeback", "victory", "highlights", "tighten")
+
+
+def tighten(brief: Brief, analysis: dict, words: list[list] | None = None) -> dict:
+    """Keep everything that is said and cut out the pauses between, at normal speed. Cut points
+    come from the analysis' voice regions (the audio energy, which is more exact here than word
+    times). The length budget isn't applied: the result is as long as the talking is."""
+    voice = analysis.get("voice")
+    if not voice:
+        raise ValueError("there are no pauses to cut: the recording is silent or has non-stop sound "
+                         "(music or game audio) under the voice; use the 'highlights' template")
+    edit = _base(brief, analysis, "tighten")
+    edit["cut_by"] = "pauses"
+    if edit["music"] == "ai":
+        edit["music"] = "none"  # a score under every jump cut would stutter; the voice carries it
+    dur = analysis["signals"]["info"]["duration"]
+    if words:  # with a transcript, a stretch without words is noise (game sounds, music): cut it too
+        mids = sorted((w[0] + w[1]) / 2 for w in words)
+        voice = [(a, b) for a, b in voice if any(a <= m < b for m in mids[bisect_left(mids, a):][:1])]
+    segs = []
+    for a, b in voice:
+        if b - a >= 0.25:
+            segs.append(seg(a, min(b, dur), "highlight"))
+    edit["segments"] = segs
+    edit["removed_s"] = round(dur - total(edit), 1)
+    return edit
+
+
 def plan(brief: Brief, analysis: dict, template: str | None = None, words: list[list] | None = None) -> dict:
     """words: the transcript (optional); talking/tutorial videos are then cut on sentences."""
+    if template and template not in TEMPLATES:
+        raise ValueError(f"template {template!r} is unknown; use one of {', '.join(TEMPLATES)}")
+    if template == "tighten":
+        return tighten(brief, analysis, words)
     if (words and len(words) >= 12 and brief.video_type in SPEECH_TYPES and template in (None, "highlights")):
         return speech_highlights(brief, analysis, words)
     template = template or choose_template(brief, analysis)
@@ -242,7 +276,7 @@ def add_speech(edit: dict, words: list[list], brief: Brief) -> dict:
         return edit
     end = edit.get("source_duration") or words[-1][1] + 1
     tol = 1.5 if brief.video_type in ("talking", "tutorial") else 0.6
-    movable = [s for s in edit["segments"] if s["kind"] not in _FIXED_CUTS]
+    movable = [s for s in edit["segments"] if s["kind"] not in _FIXED_CUTS and edit["template"] != "tighten"]
     original = [(s["src_in"], s["src_out"]) for s in movable]
 
     def place(s, cut, tolerance):
@@ -252,9 +286,30 @@ def add_speech(edit: dict, words: list[list], brief: Brief) -> dict:
     for s, cut in zip(movable, original):
         place(s, cut, tol)
     for s, cut in reversed(list(zip(movable, original))):
-        if total(edit) <= brief.max_duration:
+        if edit["template"] == "tighten" or total(edit) <= brief.max_duration:
             break
         place(s, cut, 0.0)  # over budget: drop partial words instead of finishing them
-    for s in edit["segments"]:
-        s["words"] = caption_words(words, s["src_in"], s["src_out"])
+    if edit["template"] == "tighten":
+        _assign_words(edit["segments"], words)
+    else:
+        for s in edit["segments"]:
+            s["words"] = caption_words(words, s["src_in"], s["src_out"])
     return edit
+
+
+def _assign_words(segs: list[dict], words: list[list]) -> None:
+    """Jump cuts follow the audio energy, which can end a moment before whisper's word times do:
+    give every word to its nearest segment and clamp it inside, so no word goes missing."""
+    for s in segs:
+        s["words"] = []
+    if not segs:
+        return
+    for a, b, text in words:
+        mid = (a + b) / 2
+        s = min(segs, key=lambda s: 0 if s["src_in"] <= mid < s["src_out"]
+                else min(abs(mid - s["src_in"]), abs(mid - s["src_out"])))
+        if min(abs(mid - s["src_in"]), abs(mid - s["src_out"])) > 1.0 and not s["src_in"] <= mid < s["src_out"]:
+            continue  # spoken in a removed stretch (too quiet to keep): nothing to caption
+        lo, hi = s["src_in"], s["src_out"]
+        na, nb = min(max(a, lo), hi - 0.15), min(max(b, lo + 0.15), hi)
+        s["words"].append([round(na, 3), round(max(nb, na + 0.1), 3), text])

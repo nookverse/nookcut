@@ -140,7 +140,9 @@ def _segment(edit, i, s, work, font, hwaccel, src_w, src_h, task=None, on_progre
         cmd += ["-hwaccel", hwaccel]
     cmd += ["-ss", f"{s['src_in']}", "-t", f"{s['src_out'] - s['src_in']}", "-i", edit["source"]]
     has_audio = edit.get("source_audio") != "mute"
-    cmd += ["-filter_complex", graph + (f";[0:a:0]atempo={max(0.5, s['speed'])},asetpts=PTS-STARTPTS[a]"
+    # 10 ms fades at both ends: jump cuts join without clicks
+    afade = f"afade=t=in:d=0.01,afade=t=out:st={max(0.0, dur - 0.01):.4f}:d=0.01"
+    cmd += ["-filter_complex", graph + (f";[0:a:0]atempo={max(0.5, s['speed'])},asetpts=PTS-STARTPTS,{afade}[a]"
                                         if has_audio else ""),
             "-map", "[v]"]
     if has_audio:
@@ -251,6 +253,9 @@ def render(edit: dict, out_path: str, music_wav: str | None, hwaccel: str | None
         shutil.rmtree(work, ignore_errors=True)
 
 
+PREVIEW_MAX = 40
+
+
 def preview(edit: dict, out_png: str, task: Task | None = None) -> str:
     """Contact sheet: one frame per segment with kind/time/caption, for approval before render."""
     task = task or Task(track=False)
@@ -259,6 +264,8 @@ def preview(edit: dict, out_png: str, task: Task | None = None) -> str:
     try:
         tiles = []
         items = list(timeline(edit))
+        if len(items) > PREVIEW_MAX:  # a tightened talk can have hundreds of cuts: sample them evenly
+            items = [items[round(k * (len(items) - 1) / (PREVIEW_MAX - 1))] for k in range(PREVIEW_MAX)]
         task.begin("grabbing frames", len(items))
         for i, (start, dur, s) in enumerate(items):
             mid = s["src_in"] + (s["src_out"] - s["src_in"]) * 0.5

@@ -68,6 +68,13 @@ Talking and tutorial videos are cut on whole sentences. Your ffmpeg needs the `w
 (ffmpeg 8+ built with whisper.cpp; Homebrew's `ffmpeg-full` has it). Turn it off with
 `--subtitles off` (`subtitles: "off"` for agents).
 
+**Can it remove the pauses and dead air from a whole video?**
+Yes: use the `tighten` template (`nookcut make ... --template tighten`, or `template: "tighten"` in
+`auto_edit` / `plan_edit`). It keeps everything that's said and cuts each pause down to a short
+breath, with clean jump cuts. It needs no speech model. It doesn't shorten the talk to your length
+limit, and it adds no generated music. It can't separate a voice from non-stop music or game audio;
+the analysis `pauses` line tells you whether it applies.
+
 **Is the transcription sent anywhere?**
 No. The model runs inside ffmpeg on your machine. The model download is the only network access
 NookCut ever makes, and only when you run `nookcut models install` yourself.

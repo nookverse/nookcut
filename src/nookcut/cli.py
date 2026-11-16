@@ -4,7 +4,7 @@
   nookcut new PROJECT --source raw.mov --title "..." [--game ...] [--orientation vertical] [--max 60]
                      [--region India] [--language en] [--music ai|none|file] [--music-file x.mp3]
   nookcut analyze PROJECT
-  nookcut plan PROJECT [--template comeback|victory|highlights]
+  nookcut plan PROJECT [--template comeback|victory|highlights|tighten]
   nookcut preview PROJECT
   nookcut music PROJECT [--style taiko|pulse|cinematic]
   nookcut render PROJECT

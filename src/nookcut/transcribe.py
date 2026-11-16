@@ -159,16 +159,31 @@ def to_source(t: float, spans: list[tuple]) -> float:
     return round(spans[i][1] + t - spans[i][0], 3) if spans else t
 
 
+def map_word(a: float, b: float, spans: list[tuple]) -> tuple[float, float]:
+    """A word's times in the cut-down audio -> the original recording. whisper often stretches the
+    last word before a removed pause up to the next stretch; it can't end after its own stretch."""
+    if not spans:
+        return a, b
+    i = max(0, bisect.bisect_right([o for o, _ in spans], a) - 1)
+    sa, sb = to_source(a, spans), to_source(b, spans)
+    if i + 1 < len(spans) and b > spans[i + 1][0]:
+        sb = round(spans[i][1] + spans[i + 1][0] - spans[i][0], 3)  # end of the stretch it starts in
+    return sa, max(sa, sb)
+
+
 def transcribe(source: str, tracks: list[int], model: tuple[str, str], out_json: str, language: str = "auto",
-               task: Task | None = None, duration: float = 0.0) -> dict:
-    """Transcribe the given audio tracks (mixed) to word-level timestamps; writes out_json."""
+               task: Task | None = None, duration: float = 0.0, env: list[float] | None = None) -> dict:
+    """Transcribe the given audio tracks (mixed) to word-level timestamps; writes out_json.
+    env: the envelope() of these tracks, when the caller already has it."""
     task = task or Task(track=False)
     name, path = model
     lang = re.sub(r"[^a-z]", "", (language or "auto").lower()) or "auto"
     wav, dest = out_json + ".speech.wav", out_json + ".whisper.jsonl"
     try:
-        task.begin("finding speech", note="cutting out the quiet parts")
-        regions = speech_regions(envelope(source, tracks, task))
+        if env is None:
+            task.begin("finding speech", note="cutting out the quiet parts")
+            env = envelope(source, tracks, task)
+        regions = speech_regions(env)
         spans = _extract(source, tracks, regions, wav, task)
         speech_s = os.path.getsize(wav) / (2 * SR)
         task.begin("transcribing speech", max(speech_s, 1),
@@ -194,7 +209,7 @@ def transcribe(source: str, tracks: list[int], model: tuple[str, str], out_json:
         for p in (wav, dest):
             if os.path.exists(p):
                 os.remove(p)
-    words = [[to_source(a, spans), max(to_source(a, spans), to_source(b, spans)), t] for a, b, t in words]
+    words = [[*map_word(a, b, spans), t] for a, b, t in words]
     result = {"model": name, "language": lang, "tracks": tracks, "words": words}
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False)
