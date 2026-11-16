@@ -215,14 +215,15 @@ def check_environment() -> dict:
 
 
 def _brief(source, title, video_type, game, orientation, max_duration, region, language, music, music_file,
-           source_audio, platforms, key_moments, online) -> Brief:
+           source_audio, platforms, key_moments, online, subtitles="auto", speech_language="auto") -> Brief:
     if not video_type:
         video_type = "gameplay" if game else "generic"
     return Brief(title=title, source=_path(source, must_exist=True), video_type=video_type, game=game,
                  orientation=orientation, max_duration=max_duration, region=region, language=language or "en",
                  music=music, music_file=_path(music_file, must_exist=bool(music_file)), source_audio=source_audio,
                  platforms=platforms or ["youtube_shorts", "tiktok", "instagram_reels"],
-                 key_moments=key_moments or [], online=online)
+                 key_moments=key_moments or [], online=online, subtitles=subtitles,
+                 speech_language=speech_language or "auto")
 
 
 @_tool(annotations=WRITES)
@@ -230,15 +231,16 @@ def create_project(project_dir: str, source: str, title: str, video_type: str = 
                    orientation: str = "vertical", max_duration: float | str = 60, region: str = "",
                    language: str = "en", music: str = "ai", music_file: str = "", source_audio: str = "duck",
                    platforms: list[str] | str | None = None, key_moments: list[dict] | None = None,
-                   online: bool = False) -> dict:
+                   online: bool = False, subtitles: str = "auto", speech_language: str = "auto") -> dict:
     """Step 1. Save the brief into project_dir. video_type: gameplay|talking|sports|tutorial|generic
     (empty = gameplay if game is set). orientation: vertical|square|wide. music: ai|none|file.
     source_audio: keep|duck|mute. platforms: youtube_shorts, tiktok, instagram_reels, facebook_reels,
     youtube, x. key_moments: [{"t": seconds, "label": "..."}]. online: true only if the user allowed
-    web research. Relay any warnings."""
+    web research. subtitles: auto|on|off word-by-word captions of what is said (auto = when a speech
+    model is installed). speech_language: auto or a code like en, es, hi. Relay any warnings."""
     _ready()
     b = _brief(source, title, video_type, game, orientation, max_duration, region, language, music, music_file,
-               source_audio, platforms, key_moments, online)
+               source_audio, platforms, key_moments, online, subtitles, speech_language)
     out = pl.new_project(_path(project_dir), b)
     out["next"] = "analyze_video (wait=false, then poll job_status)"
     return out
@@ -249,13 +251,14 @@ def auto_edit(source: str, title: str, project_dir: str = "", video_type: str = 
               orientation: str = "vertical", max_duration: float | str = 60, region: str = "",
               language: str = "en", music: str = "ai", source_audio: str = "duck",
               platforms: list[str] | str | None = None, key_moments: list[dict] | None = None,
-              file_name: str = "", wait: bool = True) -> dict:
+              file_name: str = "", subtitles: str = "auto", wait: bool = True) -> dict:
     """Make the finished short in ONE call, offline: analyze, plan, captions, original music,
     render, DaVinci Resolve files and publish kit. Only source and title are needed. Best path for
-    small or local models. Takes a few minutes; wait=false returns a job_id for job_status."""
+    small or local models. Speech is captioned word by word when a speech model is installed
+    (subtitles: auto|on|off). Takes a few minutes; wait=false returns a job_id for job_status."""
     _ready()
     b = _brief(source, title, video_type, game, orientation, max_duration, region, language, music, "",
-               source_audio, platforms, key_moments, False)
+               source_audio, platforms, key_moments, False, subtitles)
     project = _path(project_dir) or os.path.join(os.path.dirname(b.source),
                                                   pl.slug(title).lower() + "-nookcut")
 
@@ -281,7 +284,8 @@ def suggest_copy(project_dir: str, count: int = 5) -> dict:
 @_tool(annotations=WRITES)
 def analyze_video(project_dir: str, wait: bool = True) -> dict:
     """Step 2. Scan the recording (1-3 min for a 10-min 4K file): deaths, win, best moments,
-    silent audio. wait=false returns a job_id for job_status."""
+    silent audio, and what is said (when a speech model is installed; see `speech` in the result).
+    wait=false returns a job_id for job_status."""
     _ready()
     p = _path(project_dir, must_exist=True)
 
@@ -290,6 +294,14 @@ def analyze_video(project_dir: str, wait: bool = True) -> dict:
         out["next"] = "plan_edit"
         return out
     return _run("analyze_video", p, work, wait)
+
+
+@_tool(annotations=READ_ONLY)
+def get_transcript(project_dir: str, start: float = 0, end: float = 0) -> dict:
+    """What is said in the recording, as sentences with source times (seconds), optionally only
+    between start and end. Use it to find quotes for the hook, captions or titles, and to move
+    cuts (update_edit src_in/src_out) so they don't chop a sentence."""
+    return pl.transcript(_path(project_dir, must_exist=True), float(start), float(end))
 
 
 @_tool(annotations=WRITES)
@@ -310,10 +322,13 @@ def get_edit(project_dir: str) -> dict:
 @_tool(annotations=WRITES)
 def update_edit(project_dir: str, changes: list[dict], music_style: str = "") -> dict:
     """Change segments. Each change: {"i": index, ...fields} to update (top, bottom, src_in, src_out,
-    speed, zoom, kind), {"i": index, "delete": true}, or {"insert_at": index, "segment": {...}}.
-    '|' in a caption forces a line break; keep vertical lines <= 16 characters.
-    music_style: taiko | pulse | cinematic."""
-    path = pl.paths(_path(project_dir, must_exist=True))["edit"]
+    speed, zoom, kind, words), {"i": index, "delete": true}, or {"insert_at": index, "segment": {...}}.
+    '|' in a caption forces a line break; keep vertical lines <= 16 characters. words are the
+    speech captions as [[start, end, "word"], ...] in source seconds: fix a misheard word there,
+    or set [] to hide speech captions on that segment. After moving src_in/src_out, words are
+    refilled from the transcript. music_style: taiko | pulse | cinematic."""
+    project_dir_real = _path(project_dir, must_exist=True)
+    path = pl.paths(project_dir_real)["edit"]
     edit = ed.load(path)
     segs = edit["segments"]
     for c in sorted([c for c in changes if c.get("delete")], key=lambda c: -c["i"]):
@@ -326,8 +341,14 @@ def update_edit(project_dir: str, changes: list[dict], music_style: str = "") ->
             segs.insert(c["insert_at"], ed.seg(s["src_in"], s["src_out"], s.get("kind", "highlight"),
                                                s.get("speed", 1.0), s.get("top", ""), s.get("bottom", ""),
                                                s.get("zoom", 1.0), s.get("hits"), s.get("impact")))
+            if "words" in s:
+                segs[c["insert_at"]]["words"] = s["words"]
+            else:
+                pl.refill_words(project_dir_real, segs[c["insert_at"]])
         else:
             segs[c["i"]].update({k: v for k, v in c.items() if k != "i"})
+            if ("src_in" in c or "src_out" in c) and "words" not in c:
+                pl.refill_words(project_dir_real, segs[c["i"]])
     if music_style:
         edit["music_style"] = music_style
     errors = ed.validate(edit, edit.get("source_duration"))

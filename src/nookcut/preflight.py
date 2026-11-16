@@ -105,6 +105,28 @@ def pick_decoder(hwaccels_listing: str, encoder: str | None, system: str | None 
     return next((h for h in order if h in available), None)
 
 
+@functools.lru_cache(maxsize=None)
+def has_filter(name: str) -> bool:
+    return re.search(rf"\s{re.escape(name)}\s", _out(["ffmpeg", "-hide_banner", "-filters"])) is not None
+
+
+def speech_status() -> dict:
+    """Optional speech-to-text: ffmpeg's whisper filter plus a model from `nookcut models install`."""
+    from .models import whisper_model
+    model = whisper_model()
+    out = {"ready": False, "whisper_filter": has_filter("whisper"), "model": model[0] if model else None,
+           "word_highlight": has_filter("ass")}
+    if not out["whisper_filter"]:
+        out["how"] = ("Your ffmpeg has no whisper filter (needs ffmpeg 8+ built with whisper.cpp). " +
+                      ("ffmpeg-full has it: " + install_hint() if platform.system() == "Darwin"
+                       else "Install an ffmpeg 8+ build with whisper.cpp."))
+    elif not model:
+        out["how"] = "Run `nookcut models install` once (downloads a 148 MB speech model; works offline after)."
+    else:
+        out["ready"] = True
+    return out
+
+
 def check() -> dict:
     """Return a report; report['ok'] is False when something required is missing."""
     ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
@@ -129,4 +151,5 @@ def check() -> dict:
     if any(m.startswith(("filter:", "encoder:")) for m in report["missing"]):
         report["install"] = ("Your ffmpeg build lacks required parts; install a full build: " + install_hint())
     report["ok"] = not report["missing"]
+    report["speech_to_text"] = speech_status()  # optional: word-by-word captions from what is said
     return report

@@ -25,6 +25,10 @@ Call `check_environment`. If `ok` is false, stop and show the user exactly what 
 `install` command for their OS. Do not install anything without their go-ahead. Continue only when
 it passes.
 
+`speech_to_text` is optional. When `ready` is false and the video has talking in it, tell the user
+once that word-by-word captions of what is said need a one-time `nookcut models install` (a 148 MB
+download they run themselves; after that it works offline), and carry on without it.
+
 ## 1. Brief (ask only what is missing, in one message)
 
 | Field | Ask | Default |
@@ -41,6 +45,8 @@ it passes.
 | music | AI original (copyright-free), none, or their own file | ai |
 | source_audio | keep / duck / mute the original sound | duck |
 | key_moments | timestamps they already know ("win at 10:42") | none |
+| subtitles | word-by-word captions of what is said: auto, on, off | auto (on when a speech model is installed) |
+| speech_language | the spoken language, if not English and detection gets it wrong | auto |
 | online | may you research trends on the web? (ask only if you have a search tool) | no |
 
 Ask about going online **once per project** and only if you can search. If the user says no, or
@@ -83,7 +89,13 @@ claim. Keep it to the 3-5 most useful points.
    library in the brief's language. If no pack exists for that language, captions come out in
    English and the result says so: translate them yourself, or tell the user they can add a
    pack with `nookcut copy init <language>`.
-3. `suggest_copy` for alternatives; apply the best with `update_edit` (or your research when
+3. **Speech** (when the analysis `speech` shows words): `get_edit` lists what is said in each
+   segment, and `get_transcript` gives every sentence with its time. Talking and tutorial videos are
+   already cut on whole sentences. Use real quotes for the hook and titles when they are stronger
+   than library copy (quote exactly; never put words in the speaker's mouth). Fix a misheard word
+   in that segment's `words` with `update_edit`; set `words` to `[]` to hide speech captions on a
+   segment. When you move `src_in`/`src_out`, avoid cutting mid-sentence (check `get_transcript`).
+4. `suggest_copy` for alternatives; apply the best with `update_edit` (or your research when
    online):
    - hook (segment 0): curiosity + stakes in <= 6 words, e.g. "I DIED 7 TIMES|TO GET THIS"
    - vertical: <= 16 characters per line, `|` breaks lines, max 2 lines on top
@@ -91,7 +103,7 @@ claim. Keep it to the 3-5 most useful points.
    - end card: a question that invites comments
    - `music_style`: taiko (samurai, martial, historical), pulse (shooters, sci-fi, esports, tech),
      cinematic (bosses, fantasy, epic, sports)
-4. `preview_plan` returns the contact sheet as an image. Look at it and fix obviously bad picks
+5. `preview_plan` returns the contact sheet as an image. Look at it and fix obviously bad picks
    (black frames, menus, loading screens) with `update_edit`. Then show the user the preview and
    the segment list and **get approval before rendering**.
 
@@ -139,3 +151,6 @@ and wait. Keep "Details (for bug reports)" out of the conversation unless the us
 - If something fails, report the exact error and what you will try next; never claim success
   without a rendered file.
 - If the original audio is silent, say so and suggest checking their capture settings.
+- Speech captions show what the transcript heard; mention that the user should skim them, since
+  names and slang are the usual mistakes. `export_resolve` also writes `captions.srt`, which they
+  can upload to YouTube or TikTok as subtitles.

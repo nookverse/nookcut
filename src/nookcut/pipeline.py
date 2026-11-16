@@ -3,6 +3,7 @@
 <project>/
   brief.json        what the user wants
   analysis.json     signals + detected events
+  transcript.json   word-level speech (when a whisper model is installed; optional)
   edit.json         the edit (agent may rewrite captions/segments here)
   preview.png       contact sheet for approval
   music.wav         original score (or the user's file, mastered)
@@ -27,9 +28,11 @@ from .export import resolve_kit
 from .music import compose
 from .publish import write_kit
 from .render import preview, render
-from .story import plan
-from .preflight import check
-from .errors import Cancelled, InputError, as_nookcut
+from .story import add_speech, plan
+from .preflight import check, speech_status
+from .errors import Cancelled, EnvironmentNotReady, InputError, as_nookcut
+from .models import whisper_model
+from .transcribe import caption_words, sentences, transcribe
 from .tasks import Task, project_lock, run
 
 
@@ -68,7 +71,8 @@ def slug(text: str) -> str:
 def paths(project: str) -> dict:
     return {k: os.path.join(project, v) for k, v in {
         "brief": "brief.json", "analysis": "analysis.json", "edit": "edit.json", "preview": "preview.png",
-        "music": "music.wav", "resolve": "resolve", "kit": "publish_kit.md"}.items()}
+        "music": "music.wav", "resolve": "resolve", "kit": "publish_kit.md",
+        "transcript": "transcript.json"}.items()}
 
 
 def new_project(project: str, brief: Brief) -> dict:
@@ -84,12 +88,62 @@ def run_analysis(project: str, task: Task | None = None) -> dict:
         return _analyze(project, t)
 
 
+SPEECH_STAGES = (("finding speech", 0.5), ("transcribing speech", 4))
+
+
 def _analyze(project: str, t: Task) -> dict:
     p = paths(project)
     brief = Brief.load(p["brief"])
     hw = check().get("hardware_decode")
-    result = an.analyze(brief.source, p["analysis"], key_moments=brief.key_moments, hwaccel=hw, task=t)
-    return an.summary(result)
+    speech = speech_status() if brief.subtitles != "off" else {"ready": False, "how": "subtitles are off"}
+    if brief.subtitles == "on" and not speech["ready"]:
+        raise EnvironmentNotReady("Speech captions are turned on, but speech-to-text isn't set up.", speech["how"])
+    result = an.analyze(brief.source, p["analysis"], key_moments=brief.key_moments, hwaccel=hw, task=t,
+                        more_stages=SPEECH_STAGES if speech["ready"] else ())
+    out = an.summary(result)
+    out["speech"] = _transcribe(project, brief, result, speech, t)
+    return out
+
+
+def _transcribe(project: str, brief: Brief, result: dict, speech: dict, t: Task) -> dict:
+    """Word-level transcript of the live audio tracks, when a model is installed (never required)."""
+    p = paths(project)
+    if os.path.exists(p["transcript"]):
+        os.remove(p["transcript"])  # never keep a transcript of a different analysis
+    info = result["signals"]["info"]
+    tracks = [a["index"] for a in info["audio_tracks"] if a["peak_db"] > -60]
+    if not speech["ready"]:
+        return {"words": 0, "note": "no speech captions: " + speech.get("how", "")}
+    if not tracks:
+        return {"words": 0, "note": "the recording is silent"}
+    tr = transcribe(brief.source, tracks, whisper_model(), p["transcript"], brief.speech_language, t,
+                    info["duration"])
+    words = tr["words"]
+    if not words:
+        return {"words": 0, "model": tr["model"], "note": "no speech found"}
+    return {"words": len(words), "model": tr["model"], "language": tr["language"],
+            "preview": " ".join(w[2] for w in words[:30]) + (" ..." if len(words) > 30 else "")}
+
+
+def refill_words(project: str, s: dict) -> None:
+    """Fill a segment's speech words from the transcript after its cut points changed."""
+    path = paths(project)["transcript"]
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            s["words"] = caption_words(json.load(f)["words"], s["src_in"], s["src_out"])
+
+
+def transcript(project: str, start: float = 0.0, end: float = 0.0) -> dict:
+    """Sentences with source times, optionally only between start and end (seconds)."""
+    p = paths(project)
+    if not os.path.exists(p["transcript"]):
+        raise InputError("This project has no transcript.",
+                         "Install a speech model (`nookcut models install`), then run analyze_video again.")
+    with open(p["transcript"], encoding="utf-8") as f:
+        tr = json.load(f)
+    words = [w for w in tr["words"] if w[1] > start and (not end or w[0] < end)]
+    return {"model": tr["model"], "language": tr["language"], "sentences": [
+        {"start": s[0][0], "end": s[-1][1], "text": " ".join(w[2] for w in s)} for s in sentences(words)]}
 
 
 def make_plan(project: str, template: str | None = None) -> dict:
@@ -98,7 +152,13 @@ def make_plan(project: str, template: str | None = None) -> dict:
     brief = Brief.load(p["brief"])
     with open(p["analysis"]) as f:
         result = json.load(f)
-    edit = plan(brief, result, template)
+    words = None
+    if os.path.exists(p["transcript"]) and brief.subtitles != "off":
+        with open(p["transcript"], encoding="utf-8") as f:
+            words = json.load(f)["words"]
+    edit = plan(brief, result, template, words)
+    if words is not None:
+        add_speech(edit, words, brief)
     ed.save(edit, p["edit"])
     return describe(edit)
 
@@ -106,8 +166,9 @@ def make_plan(project: str, template: str | None = None) -> dict:
 def describe(edit: dict) -> dict:
     return {"template": edit["template"], "length": ed.total(edit), "segments": [
         {"i": i, "kind": s["kind"], "at": st, "dur": round(d, 2), "src": [s["src_in"], s["src_out"]],
-         "speed": s["speed"], "top": s["top"], "bottom": s["bottom"]}
-        for i, (st, d, s) in enumerate(ed.timeline(edit))]}
+         "speed": s["speed"], "top": s["top"], "bottom": s["bottom"],
+         **({"speech": " ".join(w[2] for w in s["words"])} if s.get("words") else {})}
+        for i, (st, d, s) in enumerate(ed.timeline(edit))], "speech_captions": bool(edit.get("subtitles"))}
 
 
 def make_preview(project: str, task: Task | None = None) -> str:
@@ -207,7 +268,7 @@ def make_kit(project: str, video: str, titles: list[str] | None = None, descript
 
 
 MAKE_STAGES = (("reading the source", 1), ("scanning the video", 6), ("measuring loudness", 2),
-               ("detecting moments", 0.2), ("planning", 0.1), ("making music", 1), ("preparing", 0.3),
+               ("detecting moments", 0.2), *SPEECH_STAGES, ("planning", 0.1), ("making music", 1), ("preparing", 0.3),
                ("rendering segments", 10), ("mixing audio", 0.7), ("finishing", 0.2))
 
 
@@ -217,7 +278,8 @@ def make_all(project: str, brief: Brief, template: str | None = None, out_name: 
     render -> Resolve export -> publish kit. One progress bar, one cancel."""
     created = new_project(project, brief)
     with job(project, "make", task) as t:
-        t.plan(*MAKE_STAGES)
+        speech = brief.subtitles != "off" and speech_status()["ready"]
+        t.plan(*(s for s in MAKE_STAGES if speech or s not in SPEECH_STAGES))
         t.fixed_plan = True
         found = _analyze(project, t)
         t.begin("planning")
@@ -237,7 +299,8 @@ def make_all(project: str, brief: Brief, template: str | None = None, out_name: 
     out = {"video": os.path.abspath(video), "publish_kit": os.path.abspath(kit),
            "resolve": resolve, "length_s": view["length"], "template": view["template"],
            "summary": f"{view['length']:.0f} s {edit['orientation']} short: {story}, {music}.",
-           "titles": copy["titles"][:3], "warnings": created["warnings"]}
+           "titles": copy["titles"][:3], "warnings": created["warnings"],
+           "speech_captions": "word by word" if edit.get("subtitles") else found["speech"].get("note", "none")}
     if copy.get("note"):
         out["note"] = copy["note"]
     return out

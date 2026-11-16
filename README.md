@@ -9,7 +9,8 @@
 
 NookCut turns a long recording (gameplay, a talk, a match, a tutorial) into a short-form video for
 YouTube Shorts, TikTok and Reels. It finds the moments that matter, cuts them into a story,
-composes **original copyright-free music** synced to the cuts, burns in captions, renders
+composes **original copyright-free music** synced to the cuts, burns in captions (including
+**word-by-word captions of what is said**, transcribed on your computer), renders
 vertical/square/wide video, exports an editable **DaVinci Resolve** timeline (free edition
 included), and writes a publish kit with titles, hashtags and region-aware posting times.
 
@@ -18,6 +19,9 @@ included), and writes a publish kit with titles, hashtags and region-aware posti
 - **Works with any agent.** It's an [MCP](https://modelcontextprotocol.io) server, so Claude, ChatGPT,
   Codex, Gemini CLI, Cursor, VS Code Copilot, local models through an MCP client, and more can drive it.
   Small local models can make a whole video with a single `auto_edit` call.
+- **Speech captions, offline.** With a one-time `nookcut models install`, NookCut transcribes speech
+  with ffmpeg's built-in Whisper filter and captions it word by word, with the spoken word
+  highlighted. Talking videos are cut on whole sentences. Without the model, everything else still works.
 - **Online is optional.** If you allow it, your agent can research trends with its own web search to
   sharpen hooks and hashtags. Nothing depends on it.
 
@@ -64,6 +68,10 @@ folder you can open in DaVinci Resolve. To let an agent do it, see [Connect an a
   - Debian/Ubuntu: `sudo apt install ffmpeg`
 - **A bold font for captions.** Impact is found automatically on macOS and Windows; elsewhere, set
   `NOOKCUT_FONT` to any bold `.ttf`.
+- Optional, for speech captions: an ffmpeg **8.0+ built with whisper.cpp** (the `whisper` filter;
+  Homebrew's `ffmpeg-full` has it, and `nookcut check` shows whether yours does) and a speech model
+  from `nookcut models install` (148 MB by default, downloaded once). `libass` (the `ass` filter)
+  adds the highlighted-word style; without it, phrases are shown plain.
 - Optional: a GPU. NookCut encodes on NVIDIA (NVENC), AMD (AMF / VA-API), Intel (Quick Sync / VA-API)
   or Apple (VideoToolbox) when one works, and falls back to the CPU otherwise.
 
@@ -139,8 +147,11 @@ nookcut make PROJECT --source raw.mp4 --title "..." [--game "..."] [--type gamep
              [--orientation vertical|square|wide] [--max 60] [--region "United States"] [--language en]
              [--platforms youtube_shorts,tiktok,instagram_reels] [--music ai|none|file] [--music-file song.mp3]
              [--source-audio keep|duck|mute] [--template comeback|victory|highlights] [--name file-name] [--online]
+             [--subtitles auto|on|off] [--speech-language auto|en|es|...]
 nookcut when India                 # posting windows in your own time zone
 nookcut copy show PROJECT          # other caption, title and hashtag options
+nookcut models install             # one-time 148 MB speech model for word-by-word captions (optional)
+nookcut transcript PROJECT         # what is said in the recording, with times
 nookcut watch PROJECT              # live progress of any job on that project, even one your agent started
 nookcut cancel PROJECT             # stop it and free the CPU at once
 ```
@@ -156,15 +167,16 @@ Exit codes: 0 ok, 1 error, 2 environment missing, 3 project busy, 130 cancelled.
 |---|---|
 | `check_environment` | Checks ffmpeg, filters, encoders and fonts; shows the install command if anything is missing |
 | `auto_edit` | **The whole video in one call**: analyze, plan, captions, music, render, Resolve files and publish kit |
-| `create_project` | Saves the brief (title, type, length, orientation, region, music, `online` opt-in) |
-| `analyze_video` | Finds deaths, the win, action peaks and silent audio |
+| `create_project` | Saves the brief (title, type, length, orientation, region, music, speech captions, `online` opt-in) |
+| `analyze_video` | Finds deaths, the win, action peaks and silent audio, and transcribes speech (when a model is installed) |
+| `get_transcript` | What is said, as sentences with times, for quotes and cut points |
 | `plan_edit` | Builds the edit from a story template with built-in captions |
 | `suggest_copy` | Offline caption options per segment, plus titles, description, hashtags and a file name |
 | `get_edit` / `update_edit` | Read or change segments and captions |
 | `preview_plan` | A contact sheet image of every segment for approval |
 | `generate_music` | Composes the original score (or masters your own track) |
 | `render_video` | Renders the final video |
-| `export_resolve` | EDLs and a Lua script that rebuild the edit in DaVinci Resolve |
+| `export_resolve` | EDLs and a Lua script that rebuild the edit in DaVinci Resolve, plus `captions.srt` when there is speech |
 | `best_posting_times` | Estimated posting windows for a region, in your time zone |
 | `write_publish_kit` | `publish_kit.md` with titles, description, hashtags and posting plan |
 | `job_status` / `cancel_job` | Progress (percent, stage, ETA) and instant cancel for long jobs |
@@ -178,11 +190,12 @@ Every result includes a `next` hint, so even small models know what to call next
 my-short/
   brief.json         what you asked for
   analysis.json      detected moments
+  transcript.json    what is said, word by word (with a speech model)
   edit.json          the edit: segments, speeds, captions (safe to edit by hand)
   preview.png        contact sheet for approval
   music.wav          the original score
   <name>.mp4         the finished video
-  resolve/           EDLs per frame rate, markers and build_timeline.lua
+  resolve/           EDLs per frame rate, markers, build_timeline.lua and captions.srt
   publish_kit.md     titles, description, hashtags, posting plan
 ```
 
@@ -210,6 +223,8 @@ you leave out fall back to English. Packs are plain JSON, so they work offline t
 | `NOOKCUT_NICE` | `10` | ffmpeg priority (0 turns lowering off) |
 | `NOOKCUT_ALLOWED_DIRS` | unrestricted | Folders the MCP tools may read and write (`:`-separated; `;` on Windows) |
 | `NOOKCUT_COPY_DIR` | `~/.nookcut/copy` | Where your language packs live |
+| `NOOKCUT_MODELS_DIR` | `~/.nookcut/models` | Where `nookcut models install` puts speech models |
+| `NOOKCUT_WHISPER_MODEL` | best installed | Speech model to use: a name (`base`, `small`, ...) or a `.bin` path |
 | `NOOKCUT_TOKEN` / `NOOKCUT_TOKEN_FILE` | none | Bearer token for the HTTP transport |
 | `NOOKCUT_TRANSPORT` / `NOOKCUT_HOST` / `NOOKCUT_PORT` | `stdio` / `127.0.0.1` / `8765` | Server transport settings |
 
@@ -251,17 +266,23 @@ to the internet.
    - **highlights**: any video, top moments in order
 
    Each template is fitted to your length limit.
-3. **Copy.** Captions, titles, descriptions and hashtags come from a built-in library, filled with
+3. **Speech (optional).** With a model installed, ffmpeg's `whisper` filter (whisper.cpp) transcribes
+   the audio word by word. Quiet stretches are cut out first, so word times stay accurate. Talking
+   and tutorial videos are cut on whole sentences; for other videos, cuts are moved out of the
+   middle of words.
+4. **Copy.** Captions, titles, descriptions and hashtags come from a built-in library, filled with
    facts from your brief and the analysis (death count, game name, length) and wrapped to fit the
    screen.
-4. **Music.** A score is synthesized from scratch (taiko, pulse or cinematic), with hits on the cuts,
+5. **Music.** A score is synthesized from scratch (taiko, pulse or cinematic), with hits on the cuts,
    then mastered. It uses no samples or existing recordings, so there's no source track to match.
-5. **Render.** Segments render in parallel on your GPU when possible, then they're joined and mixed
+6. **Render.** Segments render in parallel on your GPU when possible, then they're joined and mixed
    with the music. The original audio is ducked under it.
 
 ## Privacy and security
 
-- NookCut makes **no network calls**. Analysis, music and rendering all happen on your computer.
+- NookCut makes **no network calls**. Analysis, transcription, music and rendering all happen on your
+  computer. The one exception is `nookcut models install`, which you run yourself: it downloads a
+  speech model from Hugging Face (whisper.cpp's official files) and checks its SHA-256.
 - It **never uploads or posts**. You get files and a publish kit.
 - The HTTP server binds to localhost by default, needs a token anywhere else, and can be fenced
   into specific folders with `NOOKCUT_ALLOWED_DIRS`.

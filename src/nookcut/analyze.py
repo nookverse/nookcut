@@ -214,11 +214,11 @@ def peak_times(scores: list[float], rate: float, lo: float, hi: float, k: int = 
 
 def analyze(path: str, out_json: str | None = None, params: dict | None = None,
             key_moments: list[dict] | None = None, hwaccel: str | None = None,
-            task: Task | None = None) -> dict:
+            task: Task | None = None, more_stages: tuple = ()) -> dict:
     p = {**DEFAULTS, **(params or {})}
     if task:
         task.plan(("reading the source", 1), ("scanning the video", 6), ("measuring loudness", 2),
-                  ("detecting moments", 0.2))
+                  ("detecting moments", 0.2), *more_stages)
     sig = signals(path, hwaccel, task)
     if task:
         task.begin("detecting moments")

@@ -173,5 +173,6 @@ ffmpeg passes), and `"online_optional": ["trend research (by your agent, if you 
    (`nookcut copy init <lang>` writes `~/.nookcut/copy/<lang>.json` to translate; partial packs fall
    back to English).
 3. A user-run `nookcut models install` is approved as NookCut's only network action. It will be
-   built together with the Whisper/Piper features that need it.
+   built together with the Whisper/Piper features that need it. (Built for Whisper speech captions,
+   unreleased; Piper is still to come.)
 4. `auto_edit` waits for the finished video by default (`wait=false` returns a job).

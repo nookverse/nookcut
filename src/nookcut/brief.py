@@ -9,6 +9,7 @@ VIDEO_TYPES = ("gameplay", "talking", "sports", "tutorial", "generic")
 ORIENTATIONS = {"vertical": (1080, 1920), "square": (1080, 1080), "wide": (1920, 1080)}
 MUSIC_MODES = ("ai", "none", "file")
 SOURCE_AUDIO = ("keep", "duck", "mute")
+SUBTITLES = ("auto", "on", "off")
 
 # Upload length caps in seconds for the short-form surfaces (check platform help pages; they change).
 PLATFORM_MAX = {"youtube_shorts": 180, "tiktok": 600, "instagram_reels": 180,
@@ -29,6 +30,8 @@ ALIASES = {
               "file": ("own", "mine", "my_file")},
     "source_audio": {"keep": ("on", "original", "full"), "duck": ("lower", "quiet", "background", ""),
                      "mute": ("off", "none", "silent", "no")},
+    "subtitles": {"auto": ("", "default"), "on": ("yes", "true", "always", "speech", "captions", "required"),
+                  "off": ("no", "false", "none", "never")},
 }
 
 
@@ -78,12 +81,17 @@ class Brief:
     spoilers: bool = True
     key_moments: list[dict] = field(default_factory=list)  # [{"t": 642.7, "label": "final blow"}]
     online: bool = False                        # user allowed the agent to research on the web (opt-in)
+    subtitles: str = "auto"                     # word-by-word speech captions: auto (if a model is installed) | on | off
+    speech_language: str = "auto"               # spoken language for transcription ("auto" detects it)
 
     def __post_init__(self):
         self.video_type = canonical("video_type", self.video_type)
         self.orientation = canonical("orientation", self.orientation)
         self.music = canonical("music", self.music)
         self.source_audio = canonical("source_audio", self.source_audio)
+        if isinstance(self.subtitles, bool):
+            self.subtitles = "on" if self.subtitles else "off"
+        self.subtitles = canonical("subtitles", self.subtitles)
         if isinstance(self.platforms, str):
             self.platforms = self.platforms.split(",")
         self.platforms = list(dict.fromkeys(canonical("platform", p) for p in self.platforms if str(p).strip()))
@@ -103,6 +111,8 @@ class Brief:
             raise ValueError("music='file' needs music_file")
         if self.source_audio not in SOURCE_AUDIO:
             raise ValueError(f"source_audio {self.source_audio!r} is unknown; use one of {', '.join(SOURCE_AUDIO)}")
+        if self.subtitles not in SUBTITLES:
+            raise ValueError(f"subtitles {self.subtitles!r} is unknown; use one of {', '.join(SUBTITLES)}")
         if self.max_duration < 10:
             raise ValueError("max_duration must be at least 10 seconds")
         unknown = [p for p in self.platforms if p not in PLATFORM_MAX]

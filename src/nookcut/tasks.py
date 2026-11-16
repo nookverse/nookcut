@@ -218,6 +218,11 @@ def install_signal_handlers() -> None:
                 pass
 
 
+def filter_quote(path: str) -> str:
+    """A file path as a quoted value inside an ffmpeg filter graph."""
+    return "'" + path.replace("\\", "/").replace("'", r"'\''").replace(":", r"\:") + "'"
+
+
 def _nice(cmd: list[str]) -> list[str]:
     """Run ffmpeg at lower CPU priority so the computer stays usable (NOOKCUT_NICE=0 turns it off)."""
     level = os.getenv("NOOKCUT_NICE", "10")

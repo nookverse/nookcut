@@ -7,6 +7,17 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Speech captions, offline: `analyze` transcribes speech with ffmpeg's `whisper` filter (whisper.cpp)
+  and videos get word-by-word captions with the spoken word highlighted (libass; plain phrases
+  without it). Quiet stretches are cut out before transcribing so word times stay accurate.
+- `nookcut models list|install|remove`: the optional speech models (tiny to large-v3-turbo), verified
+  by SHA-256. This user-run command is NookCut's only network access.
+- Talking and tutorial videos are cut on whole sentences, with sign-offs ("let me know in the
+  comments") kept out of the hook and used as the last line. Other videos never cut mid-word.
+- `get_transcript` MCP tool and `nookcut transcript PROJECT`.
+- `captions.srt` in the Resolve kit for platforms and editors.
+- Brief options `subtitles` (auto | on | off) and `speech_language`; `check_environment` reports
+  `speech_to_text`.
 - `nookcut --version`.
 - README: platform support table, alpha status, update and uninstall steps, full `make` options.
 

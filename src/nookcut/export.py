@@ -106,7 +106,7 @@ MARKER_COLORS = {"hook": "Red", "intro": "Blue", "death": "Red", "card": "Yellow
 
 def resolve_kit(edit: dict, kit_dir: str, render_path: str = "", music_path: str = "",
                 name: str = "NookCut Short") -> dict:
-    """Write cut_<fps>.edl files, markers.txt and build_timeline.lua into kit_dir."""
+    """Write cut_<fps>.edl files, markers.txt, build_timeline.lua and (with speech) captions.srt."""
     os.makedirs(kit_dir, exist_ok=True)
     for fps in FPS_CHOICES:
         with open(os.path.join(kit_dir, f"cut_{fps}.edl"), "w") as f:
@@ -124,5 +124,11 @@ def resolve_kit(edit: dict, kit_dir: str, render_path: str = "", music_path: str
     lua_path = os.path.join(kit_dir, "build_timeline.lua")
     with open(lua_path, "w", encoding="utf-8") as f:
         f.write(lua)
-    return {"kit": kit_dir, "lua": lua_path,
-            "how_to_run": f'In Resolve: Workspace > Console > Lua, then: dofile("{os.path.abspath(lua_path)}")'}
+    out = {"kit": kit_dir, "lua": lua_path,
+           "how_to_run": f'In Resolve: Workspace > Console > Lua, then: dofile("{os.path.abspath(lua_path)}")'}
+    if edit.get("subtitles"):
+        from .subtitles import srt
+        out["captions_srt"] = os.path.join(kit_dir, "captions.srt")
+        with open(out["captions_srt"], "w", encoding="utf-8") as f:
+            f.write(srt(edit))
+    return out

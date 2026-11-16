@@ -13,6 +13,8 @@
   nookcut make PROJECT ...   everything in one go, offline (same as the MCP tool auto_edit)
   nookcut copy show PROJECT  built-in caption/title/hashtag options for a planned project
   nookcut copy init LANG     start a caption language pack (~/.nookcut/copy/LANG.json) to translate
+  nookcut models list|install [NAME]|remove NAME   optional speech-to-text models (the only download)
+  nookcut transcript PROJECT what is said in the recording, with times (after analyze)
   nookcut watch PROJECT    live progress of any job on PROJECT (also ones your agent started)
   nookcut cancel PROJECT   stop the job running on PROJECT and its ffmpeg processes
   nookcut service install|status|restart|connect|uninstall   one shared server for every agent session
@@ -53,13 +55,16 @@ def _brief_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--source-audio", default="duck")
     p.add_argument("--platforms", default="youtube_shorts,tiktok,instagram_reels")
     p.add_argument("--online", action="store_true", help="the user allows the agent to research on the web")
+    p.add_argument("--subtitles", default="auto", help="word-by-word speech captions: auto | on | off")
+    p.add_argument("--speech-language", default="auto", help="spoken language, e.g. en or es (auto detects)")
 
 
 def _brief(a) -> Brief:
     return Brief(title=a.title, source=a.source, video_type=a.video_type, game=a.game,
                  platforms=a.platforms.split(","), orientation=a.orientation, max_duration=a.max_duration,
                  region=a.region, language=a.language, music=a.music, music_file=a.music_file,
-                 source_audio=a.source_audio, online=a.online)
+                 source_audio=a.source_audio, online=a.online, subtitles=a.subtitles,
+                 speech_language=a.speech_language)
 
 
 def _fail(e: BaseException, verbose: bool) -> int:
@@ -102,6 +107,33 @@ def _step(fn, name: str, project: str, quiet: bool, *args):
             ui.close()
 
 
+def _models(a) -> int:
+    from . import models
+    if a.action == "list":
+        for m in models.listing():
+            mark = "in use" if m["in_use"] else ("installed" if m["installed"] else "")
+            print(f"  {m['name']:<15} {m['size_mb']:>5} MB  {mark:<9}  {m['about']}")
+        print(f"\nFolder: {models.models_dir()}\nInstall one with: nookcut models install [NAME]  "
+              f"(default {models.DEFAULT})")
+        return 0
+    if a.action == "remove":
+        if not a.name:
+            raise SystemExit("Which model? e.g. nookcut models remove base")
+        print("Removed." if models.remove(a.name) else "That model isn't installed.")
+        return 0
+    name = a.name or models.DEFAULT
+    size = models.WHISPER[name][1] / 1e6 if name in models.WHISPER else 0
+    print(f"Downloading the {name} speech model ({size:.0f} MB) from huggingface.co (whisper.cpp). "
+          "This is the only download NookCut makes; after it, speech captions work offline.", file=sys.stderr)
+
+    def bar(done, total):
+        pct = done * 100 // max(total, 1)
+        print(f"\r  {pct:3d}%  {done / 1e6:6.0f} / {total / 1e6:.0f} MB", end="", file=sys.stderr, flush=True)
+    path = models.install(name, bar)
+    print(f"\nInstalled: {path}\nSpeech captions are now on for new analyses (subtitles: auto).", file=sys.stderr)
+    return 0
+
+
 def _main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="nookcut", description="Raw recording in, viral short out.")
     ap.add_argument("--version", action="version", version=f"nookcut {__version__}")
@@ -114,6 +146,10 @@ def _main(argv: list[str] | None = None) -> int:
     m.add_argument("--template"); m.add_argument("--name", default="", help="output file name (no extension)")
     cp = sub.add_parser("copy", help="built-in offline captions, titles and hashtags")
     cp.add_argument("action", choices=("show", "init")); cp.add_argument("target", help="project (show) or language (init)")
+    md = sub.add_parser("models", help="optional local models (speech-to-text); the only thing NookCut downloads")
+    md.add_argument("action", choices=("list", "install", "remove")); md.add_argument("name", nargs="?", default="")
+    tr = sub.add_parser("transcript", help="what is said in the recording (after analyze)")
+    tr.add_argument("project"); tr.add_argument("--start", type=float, default=0); tr.add_argument("--end", type=float, default=0)
     for name in ("analyze", "preview", "render"):
         sub.add_parser(name).add_argument("project")
     pp = sub.add_parser("plan"); pp.add_argument("project"); pp.add_argument("--template")
@@ -152,6 +188,12 @@ def _main(argv: list[str] | None = None) -> int:
                   "to English. Set the project's language to use it.")
         else:
             _print(pl.suggest_copy(a.target))
+        return 0
+    if a.cmd == "models":
+        return _models(a)
+    if a.cmd == "transcript":
+        for x in pl.transcript(a.project, a.start, a.end)["sentences"]:
+            print(f"{x['start']:8.2f}  {x['text']}")
         return 0
     if a.cmd == "check":
         r = check(); _print(r); return 0 if r["ok"] else 1

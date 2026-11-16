@@ -17,8 +17,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .edit import seg_duration, timeline, total
 from .errors import EnvironmentNotReady, MediaError, explain_ffmpeg
-from .preflight import encoder_args, find_font
-from .tasks import Task, _nice, run
+from . import subtitles as subs
+from .preflight import encoder_args, find_font, has_filter
+from .tasks import Task, _nice, filter_quote, run
 
 
 def _decoded_size(source: str, hwaccel: str | None) -> tuple[int, int, str | None]:
@@ -47,30 +48,46 @@ def _decoded_size(source: str, hwaccel: str | None) -> tuple[int, int, str | Non
     return w, h, None
 
 
-def _q(path: str) -> str:
-    return "'" + path.replace("\\", "/").replace("'", r"'\''").replace(":", r"\:") + "'"
+_q = filter_quote
 
 
 def _layout(edit: dict) -> dict:
     o = edit["orientation"]
     if o == "vertical":
         return {"fg_w": 1080, "fg_h": 900, "fg_y": 470, "crop_aspect": 1.2, "top_y": 150, "line": 140,
-                "big": 120, "small": 58, "bottom_y": 1440}
+                "big": 120, "small": 58, "bottom_y": 1440, "speech": 112, "speech_chars": 16}
     if o == "square":
         return {"fg_w": 1080, "fg_h": 608, "fg_y": 236, "crop_aspect": 16 / 9, "top_y": 40, "line": 95,
-                "big": 82, "small": 44, "bottom_y": 920}
+                "big": 82, "small": 44, "bottom_y": 920, "speech": 76, "speech_chars": 22}
     return {"fg_w": 1920, "fg_h": 1080, "fg_y": 0, "crop_aspect": 16 / 9, "top_y": 60, "line": 120,
-            "big": 104, "small": 56, "bottom_y": 930}
+            "big": 104, "small": 56, "bottom_y": 930, "speech": 92, "speech_chars": 28}
 
 
-def _text(work, i, s, dur, L, font):
+def _speech(work, i, words, dur, L, font, W, H):
+    """Word-by-word speech captions where the bottom caption would go (libass, else drawtext)."""
+    if has_filter("ass"):
+        p = os.path.join(work, f"s{i}.ass")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(subs.ass(words, dur, W, H, L["bottom_y"], L["speech"], font, L["speech_chars"]))
+        return [f"ass={_q(p)}:fontsdir={_q(os.path.dirname(font))}"]
+    out = []
+    for k, (a, b, text) in enumerate(subs.plain(words, dur, L["speech_chars"])):
+        p = os.path.join(work, f"s{i}_{k}.txt"); open(p, "w", encoding="utf-8").write(text)
+        out.append(f"drawtext=fontfile={_q(font)}:textfile={_q(p)}:fontsize={L['speech']}:fontcolor=white"
+                   f":borderw=6:bordercolor=black:x=(w-text_w)/2:y={L['bottom_y']}:enable='between(t,{a:.3f},{b:.3f})'")
+    return out
+
+
+def _text(work, i, s, dur, L, font, W=0, H=0, speech=None):
     f, kind = [], s["kind"]
     color = "0xFF2A2A" if kind == "death" else "white"
     for j, line in enumerate(x for x in s["top"].split("|") if x):
         p = os.path.join(work, f"t{i}_{j}.txt"); open(p, "w", encoding="utf-8").write(line)
         f.append(f"drawtext=fontfile={_q(font)}:textfile={_q(p)}:fontsize={L['big']}:fontcolor={color}"
                  f":borderw=7:bordercolor=black:x=(w-text_w)/2:y={L['top_y'] + j * L['line']}:alpha='min(1,t/0.12)'")
-    if s["bottom"]:
+    if speech:
+        f += _speech(work, i, speech, dur, L, font, W, H)
+    elif s["bottom"]:
         p = os.path.join(work, f"b{i}.txt"); open(p, "w", encoding="utf-8").write(s["bottom"].replace("|", " "))
         bcolor = "0xFF2A2A" if kind == "death" else "0xFFD400"
         f.append(f"drawtext=fontfile={_q(font)}:textfile={_q(p)}:fontsize={L['small']}:fontcolor={bcolor}"
@@ -115,7 +132,8 @@ def _segment(edit, i, s, work, font, hwaccel, src_w, src_h, task=None, on_progre
                  f"[a]scale={W // 4}:{H // 4}:force_original_aspect_ratio=increase,crop={W // 4}:{H // 4},"
                  f"gblur=sigma=10,scale={W}:{H},eq=brightness=-0.18:saturation=0.8[bg];[b]{fg}[fg];"
                  f"[bg][fg]overlay={x}:{y}")
-    graph += "," + ",".join(_text(work, i, s, dur, L, font) + [enc["fmt"]]) + "[v]"
+    speech = subs.local_words(s) if edit.get("subtitles") else []
+    graph += "," + ",".join(_text(work, i, s, dur, L, font, W, H, speech) + [enc["fmt"]]) + "[v]"
     out = os.path.join(work, f"seg{i:03d}.mov")
     cmd = ["ffmpeg", "-v", "error", "-y"] + enc["pre"]
     if hwaccel:

@@ -189,6 +189,123 @@ class OfflineCopy(unittest.TestCase):
         self.assertEqual([n for n, _ in t.stages], ["a", "b", "c"])
 
 
+def fake_words(sentences, start=5.0, gap=1.5, per_word=0.4):
+    """[[t0, t1, word], ...] for sentences spoken one after another with pauses between."""
+    words, t = [], start
+    for sentence in sentences:
+        for w in sentence.split():
+            words.append([round(t, 2), round(t + per_word - 0.05, 2), w])
+            t += per_word
+        t += gap
+    return words
+
+
+class Speech(unittest.TestCase):
+    def test_parse_drops_noise_and_hallucinations(self):
+        from nookcut.transcribe import parse
+        lines = "\n".join(['{"start":0,"end":20000,"text":"[music]"}', '{"start":20000,"end":20400,"text":"Okay,"}',
+                           '{"start":20400,"end":20800,"text":"go."}', '{"start":30000,"end":30500,"text":"Thank"}',
+                           '{"start":30500,"end":31000,"text":"you."}', 'not json'])
+        self.assertEqual(parse(lines), [[20.0, 20.4, "Okay,"], [20.4, 20.8, "go."]])
+        self.assertEqual(parse('{"start":0,"end":500,"text":"noises*"}'), [])
+        split = "\n".join(f'{{"start":{i * 100},"end":{i * 100 + 90},"text":"{w}"}}'
+                          for i, w in enumerate(["*fangirling", "loud", "noises*", "Hello", "there."]))
+        self.assertEqual([w[2] for w in parse(split)], ["Hello", "there."])
+
+    def test_stray_words_are_not_captioned(self):
+        from nookcut.transcribe import caption_words
+        words = fake_words(["this is a long sentence that ends here.", "Short one."], start=0, gap=1)
+        self.assertEqual(caption_words(words, 2.7, 6.0), [[4.2, 4.55, "Short"], [4.6, 4.95, "one."]])
+        self.assertEqual(len(caption_words(words, 0.0, 2.0)), 5)   # most of the first sentence
+
+    def test_speech_regions_cut_quiet_parts(self):
+        from nookcut.transcribe import speech_regions, to_source
+        env = [-100.0] * 500 + [-20.0] * 200 + [-100.0] * 800 + [-22.0] * 100 + [-100.0] * 300
+        regions = speech_regions(env)
+        self.assertEqual(len(regions), 2)
+        self.assertAlmostEqual(regions[0][0], 4.75, delta=0.02)
+        self.assertAlmostEqual(regions[1][1], 16.25, delta=0.02)
+        self.assertIsNone(speech_regions([-30.0] * 1000))  # non-stop sound: transcribe everything
+        spans = [(0.0, 4.75), (2.5, 14.75)]                  # (time in cut audio, time in source)
+        self.assertEqual(to_source(1.0, spans), 5.75)
+        self.assertEqual(to_source(3.0, spans), 15.25)
+
+    def test_phrases_and_snap(self):
+        from nookcut.transcribe import phrases, snap
+        words = fake_words(["one two three four. five six"], start=0, gap=0)
+        groups = phrases(words, max_chars=16, max_words=3)
+        self.assertEqual([len(g) for g in groups], [3, 1, 2])
+        self.assertEqual(snap(0.5, 1.0, words, 0.6, 10), (0.35, 1.15))   # finish both words, stop before "four"
+        self.assertEqual(snap(0.5, 1.0, words, 0.0, 10), (0.75, 0.78))   # no stretch: drop partial words
+
+    def test_ass_and_srt(self):
+        from nookcut.subtitles import ass, local_words, srt
+        seg = {"src_in": 10.0, "src_out": 12.0, "speed": 0.5, "kind": "hook", "top": "", "bottom": "",
+               "words": [[10.0, 10.4, "Watch"], [10.4, 10.9, "this,"], [11.5, 13.0, "now!"]]}
+        local = local_words(seg)
+        self.assertEqual(local[0][:2], [0.0, 0.8])          # slowed down 2x
+        self.assertEqual(local[-1][1], 4.0)                 # clipped to the segment
+        script = ass(local, 4.0, 1080, 1920, 1440, 112, "/nonexistent/Impact.ttf", 16)
+        self.assertIn("Style: Speech,Impact,112", script)
+        self.assertEqual(script.count("Dialogue:"), 3)
+        self.assertIn("\\c&H0000D4FF&", script)
+        self.assertIn("WATCH{\\r} THIS\n", script)  # spoken word highlighted, comma dropped
+        out = srt({"segments": [seg], "subtitles": True})
+        self.assertTrue(out.startswith("1\n00:00:00,000 --> "))
+        self.assertIn("Watch this,", out)
+
+    def test_talking_video_cuts_on_sentences(self):
+        from nookcut.story import add_speech
+        b = Brief(title="Boss guide", source="x.mp4", video_type="talking", max_duration=20)
+        words = fake_words(["First you wait behind the pillar.", "Then you roll forward when he jumps!",
+                            "This part took me eight tries.", "Hit him three times and back off.",
+                            "Let me know in the comments below."], start=5, gap=2)
+        e = plan(b, fake_analysis(), words=words)
+        add_speech(e, words, b)
+        self.assertEqual(e["cut_by"], "sentences")
+        self.assertLessEqual(total(e), 20)
+        self.assertNotIn("comments", " ".join(w[2] for w in e["segments"][0]["words"]))   # sign-off isn't the hook
+        self.assertIn("comments", " ".join(w[2] for w in e["segments"][-1]["words"]))     # it closes the video
+        for s in e["segments"]:
+            spoken = [w[2] for w in s["words"]]
+            self.assertTrue(spoken[0][0].isupper() and spoken[-1].endswith((".", "!")), spoken)  # whole sentences
+        self.assertTrue(e["subtitles"])
+
+    def test_gameplay_cuts_only_snap(self):
+        from nookcut.story import add_speech
+        b = Brief(title="t", source="x.mp4", game="G", max_duration=45)
+        words = fake_words(["let's go " * 60], start=1, gap=0, per_word=0.37)
+        e = add_speech(plan(b, fake_analysis(), words=words), words, b)
+        self.assertEqual(e["template"], "comeback")
+        self.assertLessEqual(total(e), 45)
+        for s in e["segments"]:
+            if s["kind"] not in ("death", "card"):
+                self.assertFalse(any(w[0] < s["src_in"] < w[1] or w[0] < s["src_out"] < w[1] for w in words))
+
+    def test_models_registry(self):
+        import tempfile, os
+        from nookcut import models
+        self.assertIn(models.DEFAULT, models.WHISPER)
+        self.assertTrue(all(len(v[2]) == 64 for v in models.WHISPER.values()))
+        with tempfile.TemporaryDirectory() as d:
+            old = os.environ.get("NOOKCUT_MODELS_DIR")
+            os.environ["NOOKCUT_MODELS_DIR"] = d
+            try:
+                self.assertIsNone(models.whisper_model())
+                with open(os.path.join(d, "ggml-tiny.bin"), "wb") as f:
+                    f.write(b"x")                     # wrong size: not counted as installed
+                self.assertEqual(models.installed(), [])
+            finally:
+                os.environ.pop("NOOKCUT_MODELS_DIR")
+                if old:
+                    os.environ["NOOKCUT_MODELS_DIR"] = old
+
+    def test_brief_subtitles(self):
+        self.assertEqual(Brief(title="t", source="x", subtitles=True).subtitles, "on")
+        self.assertEqual(Brief(title="t", source="x", subtitles="No").subtitles, "off")
+        self.assertEqual(Brief(title="t", source="x").subtitles, "auto")
+
+
 class Export(unittest.TestCase):
     def test_edl_uses_source_timecode_and_speed(self):
         e = plan(Brief(title="t", source="/x.mov", game="g"), fake_analysis())

@@ -60,6 +60,23 @@ English ships built in. Run `nookcut copy init <language>` to create a pack, tra
 and set the project's `language`. Anything you don't translate falls back to English. An agent can
 also translate the captions for you.
 
+**Can it caption what I say?**
+Yes. Run `nookcut models install` once (a 148 MB speech model; `nookcut models list` shows smaller
+and more accurate ones). After that, `analyze` transcribes speech on your computer with ffmpeg's
+built-in Whisper filter and the video gets word-by-word captions, with the spoken word highlighted.
+Talking and tutorial videos are cut on whole sentences. Your ffmpeg needs the `whisper` filter
+(ffmpeg 8+ built with whisper.cpp; Homebrew's `ffmpeg-full` has it). Turn it off with
+`--subtitles off` (`subtitles: "off"` for agents).
+
+**Is the transcription sent anywhere?**
+No. The model runs inside ffmpeg on your machine. The model download is the only network access
+NookCut ever makes, and only when you run `nookcut models install` yourself.
+
+**A word in the captions is wrong.**
+Edit the segment's `words` with `update_edit` (or in `edit.json`), then render again. A bigger model
+(`nookcut models install small`) makes fewer mistakes. If the language is detected wrongly, set
+`speech_language` (for example `es`).
+
 **Are the hashtags trending?**
 No. Offline hashtags are generic starter tags built from your topic and game name, and the publish
 kit says so. For live trends, allow your agent to research online.

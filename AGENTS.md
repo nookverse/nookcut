@@ -19,7 +19,7 @@ with its own search only when the user allows it; NookCut never does network cal
 - **Free for the user.** No paid APIs, no API keys, no extra subscriptions.
 - **Offline first.** Every feature works with no internet and with any local agent. Going online
   (agent web research) is opt-in per project (`brief.online`, default off). Optional local models
-  (Whisper, Piper; planned) may be fetched only by a user-run `nookcut models install`, never
+  (Whisper today, Piper planned) may be fetched only by a user-run `nookcut models install`, never
   automatically. Python standard library + ffmpeg only at runtime (`mcp` is the one
   optional dependency, for the server).
 - **Licensed music only.** AI music is synthesized from scratch in `music.py` (no samples), or the
@@ -45,6 +45,9 @@ src/nookcut/
   analyze.py     64x36 @ 2 fps signal scan -> deaths/fades/win/moments (no ML)
   story.py       story templates (comeback | victory | highlights) fitted to the length budget
   copywriting.py offline captions/titles/descriptions/hashtags from language packs (copydata/*.json)
+  models.py      optional local models (whisper); `nookcut models install` is the only network code
+  transcribe.py  speech to text with ffmpeg's whisper filter; quiet parts cut out for accurate times
+  subtitles.py   word-by-word .ass captions for the render, .srt for export
   edit.py        the edit.json contract (segments, kinds, validation)
   music.py       procedural score (taiko | pulse | cinematic), mastered with ffmpeg
   render.py      parallel per-segment render + concat + audio mix; preview contact sheet
@@ -130,5 +133,9 @@ playbook (see `gemini-extension.json`), not contributor guidance.
 - The Docker image has never been built or run (the README marks it experimental).
 - Windows isn't covered by CI.
 - The `c`/`q` keys of `nookcut watch` haven't been tested in a real terminal.
+- Speech captions need ffmpeg 8+ with the `whisper` filter; many Linux distro and Windows builds
+  lack it (`speech_to_text.how` says so). Several audio tracks are mixed before transcribing, so a
+  separate mic track isn't singled out. Hooks don't yet come from the transcript automatically
+  (agents can pick quotes with `get_transcript`).
 - Detection is tuned on action games (death = fade after a red vignette); other genres fall back
   to the generic highlights template.

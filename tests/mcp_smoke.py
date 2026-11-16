@@ -30,12 +30,12 @@ async def exercise(session: ClientSession, clip: str | None, project: str | None
     print(f"  {len(tools)} tools, prompts={prompts}, resources={resources}")
     skill = await session.read_resource("nookcut://skill")
     assert "NookCut editor" in skill.contents[0].text
-    assert {"auto_edit", "suggest_copy"} <= set(tools), tools
+    assert {"auto_edit", "suggest_copy", "get_transcript"} <= set(tools), tools
     assert not [t for t in tools if t.startswith("_")], tools
     prompt = await session.get_prompt("nookcut-editor", {"source": "x.mov", "title": "Test"})
     assert "Make a short from this brief" in prompt.messages[0].content.text
     env = json.loads(text(await session.call_tool("check_environment", {})))
-    print(f"  environment ok={env['ok']}")
+    print(f"  environment ok={env['ok']}, speech-to-text ready={env['speech_to_text']['ready']}")
     when = json.loads(text(await session.call_tool("best_posting_times", {"region": "India"})))
     print(f"  posting window: {when['windows'][0]['audience_time']}")
     if not clip:
@@ -54,6 +54,11 @@ async def exercise(session: ClientSession, clip: str | None, project: str | None
         await asyncio.sleep(0.5)
     print(f"  background analyze: {st['status']} in {st['elapsed_s']}s, stages seen: {sorted(seen)}")
     assert st["status"] == "done", st
+    speech = st["result"]["speech"]
+    print(f"  speech: {speech.get('words', 0)} words ({speech.get('note') or speech.get('model')})")
+    if speech.get("words"):
+        tr = json.loads(text(await session.call_tool("get_transcript", {"project_dir": project})))
+        print(f"  get_transcript: {len(tr['sentences'])} sentences, first {tr['sentences'][0]['text']!r}")
     plan = json.loads(text(await session.call_tool("plan_edit", {"project_dir": project})))
     print(f"  plan: {plan['template']} {plan['length']}s, {len(plan['segments'])} segments")
     copy = json.loads(text(await session.call_tool("suggest_copy", {"project_dir": project})))
