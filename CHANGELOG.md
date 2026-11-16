@@ -21,6 +21,7 @@ All notable changes to this project are documented here. The format follows
 - `captions.srt` in the Resolve kit for platforms and editors.
 - Brief options `subtitles` (auto | on | off) and `speech_language`; `check_environment` reports
   `speech_to_text`.
+- `CREDITS.md`: the open-source projects and models NookCut uses, with their licenses.
 - `nookcut --version`.
 - README: platform support table, alpha status, update and uninstall steps, full `make` options.
 

@@ -9,7 +9,7 @@ description = "Raw recording in, viral short out: an offline MCP server, CLI and
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "CREDITS.md"]
 authors = [{ name = "Nookverse" }]
 keywords = ["mcp", "model-context-protocol", "video-editing", "ffmpeg", "shorts", "tiktok", "reels",
             "davinci-resolve", "ai-agents", "offline"]

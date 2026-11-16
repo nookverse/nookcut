@@ -45,7 +45,7 @@ included), and writes a publish kit with titles, hashtags and region-aware posti
 - [How it works](#how-it-works)
 - [Privacy and security](#privacy-and-security)
 - [FAQ](#faq)
-- [Contributing](#contributing) · [License](#license)
+- [Contributing](#contributing) · [Credits](#credits) · [License](#license)
 
 ## Quick start
 
@@ -311,6 +311,11 @@ See **[docs/FAQ.md](docs/FAQ.md)**. Short answers:
 Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) and the
 [Code of Conduct](CODE_OF_CONDUCT.md). Notes for AI coding agents working on this repo are in
 [AGENTS.md](AGENTS.md). Release notes are in [CHANGELOG.md](CHANGELOG.md).
+
+## Credits
+
+NookCut stands on FFmpeg, whisper.cpp, libass, the MCP Python SDK and more. See
+[CREDITS.md](CREDITS.md) for every project it uses and their licenses.
 
 ## License
 
