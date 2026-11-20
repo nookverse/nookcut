@@ -6,6 +6,7 @@ recording analyses in a minute or two with no Python dependencies:
   redness     red/green ratio on the left/right screen edges (damage / death vignettes)
   motion      mean abs difference to the previous sample
   loudness    RMS dBFS of the loudest audio track (None when the recording is silent)
+  scenes      camera/shot cuts, from ffmpeg's scdet on a 10 fps copy in the same decode (+-0.1 s)
 
 Detectors turn signals into events:
   dark events  fades to black/red; classified 'death' when a red vignette precedes them
@@ -16,12 +17,16 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import re
 import statistics
+import tempfile
 from array import array
 
 from .errors import MediaError
+from .preflight import has_filter
 from .probe import probe
-from .tasks import Task, run
+from .tasks import Task, filter_quote, run
 
 RATE = 2.0
 W, H = 64, 36
@@ -30,7 +35,10 @@ DEFAULTS = {
     "dark_threshold": 35.0,     # brightness below this = screen is dark
     "death_redness": 1.1,       # edge red/green ratio before a fade that marks a death
     "min_attempt": 20.0,        # seconds of play between a death and a win to count as an attempt
+    "scene_threshold": 10.0,    # scdet score (0-100) that counts as a cut
 }
+SCENE_RATE = 10                 # scdet looks at this many frames a second (cut times to 0.1 s)
+SCENE_MERGE = 0.4               # cuts closer than this are one transition (flashes, dissolves)
 
 
 class _Frames:
@@ -59,18 +67,43 @@ class _Frames:
             self.on_sample(len(self.bright) / RATE)
 
 
-def _decode(path: str, hwaccel: str | None, task: Task | None, on_sample=None) -> _Frames:
-    for accel in ([hwaccel, None] if hwaccel else [None]):
-        frames = _Frames(on_sample)
-        cmd = ["ffmpeg", "-v", "error"] + (["-hwaccel", accel] if accel else [])
-        cmd += ["-i", path, "-an", "-vf", f"fps={RATE},scale={W}:{H}", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]
-        try:
-            run(cmd, task, "scanning the video", on_chunk=frames.feed)
-            return frames
-        except MediaError:
-            if not accel:
-                raise
-    raise AssertionError("unreachable")
+def _decode(path: str, hwaccel: str | None, task: Task | None, on_sample=None,
+            scene_threshold: float = DEFAULTS["scene_threshold"]) -> tuple[_Frames, list[float] | None]:
+    """One decode: the 64x36 signal frames, and scene cuts (None when ffmpeg has no scdet)."""
+    scenes = has_filter("scdet")
+    fd, cuts_file = tempfile.mkstemp(prefix="nookcut_cuts_", suffix=".txt")
+    os.close(fd)
+    try:
+        for accel in ([hwaccel, None] if hwaccel else [None]):
+            frames = _Frames(on_sample)
+            cmd = ["ffmpeg", "-v", "error"] + (["-hwaccel", accel] if accel else []) + ["-i", path, "-an"]
+            if scenes:
+                cmd += ["-filter_complex",
+                        f"[0:v]split[a][b];[a]fps={RATE},scale={W}:{H}[s];[b]fps={SCENE_RATE},scale=160:90,"
+                        f"scdet=t={scene_threshold},metadata=print:key=lavfi.scd.time:file={filter_quote(cuts_file)},"
+                        "nullsink", "-map", "[s]"]
+            else:
+                cmd += ["-vf", f"fps={RATE},scale={W}:{H}"]
+            cmd += ["-f", "rawvideo", "-pix_fmt", "rgb24", "-"]
+            try:
+                run(cmd, task, "scanning the video", on_chunk=frames.feed)
+                with open(cuts_file, encoding="utf-8") as f:
+                    return frames, merge_cuts(f.read()) if scenes else None
+            except MediaError:
+                if not accel:
+                    raise
+        raise AssertionError("unreachable")
+    finally:
+        os.remove(cuts_file)
+
+
+def merge_cuts(metadata: str) -> list[float]:
+    """scdet's printed lavfi.scd.time values -> cut times, one per transition."""
+    out: list[float] = []
+    for t in sorted(float(x) for x in re.findall(r"lavfi\.scd\.time=([0-9.]+)", metadata)):
+        if not out or t - out[-1] >= SCENE_MERGE:
+            out.append(round(t, 2))
+    return out
 
 
 def _loudness(path: str, track: int, n: int, task: Task | None, on_progress=None) -> list[float]:
@@ -101,7 +134,7 @@ def signals(path: str, hwaccel: str | None = None, task: Task | None = None) -> 
     info = probe(path, task)
     dur = info["duration"]
     task.begin("scanning the video", dur, note=f"{dur / 60:.1f} min of footage")
-    frames = _decode(path, hwaccel, task, lambda t: task.set(t))
+    frames, scenes = _decode(path, hwaccel, task, lambda t: task.set(t))
     if not frames.bright:
         raise MediaError("Scanning the video failed: no frames could be decoded.",
                          "The file may be damaged; try re-exporting it.")
@@ -112,7 +145,7 @@ def signals(path: str, hwaccel: str | None = None, task: Task | None = None) -> 
         task.begin("measuring loudness", dur, note=f"audio track {best['index'] + 1}")
         loud = _loudness(path, best["index"], len(frames.bright), task, lambda t: task.set(t))
     return {"info": info, "rate": RATE, "brightness": frames.bright, "redness": frames.red,
-            "motion": frames.motion, "loudness": loud}
+            "motion": frames.motion, "loudness": loud, "scenes": scenes}
 
 
 def dark_events(sig: dict, params: dict) -> list[dict]:
@@ -176,11 +209,12 @@ def moment_scores(sig: dict) -> list[float]:
     L = sig["loudness"]
     if L:
         lmu, lsd = statistics.mean(L), statistics.pstdev(L) or 1
+    cut_samples = {round(c * sig["rate"]) + d for c in sig.get("scenes") or [] for d in (0, 1)}
     out = []
     for k, m in enumerate(M):
         z = (m - mu) / sd
-        if z > 4:          # hard scene cut, not action
-            z = 0.5
+        if z > 4 or k in cut_samples:  # a scene cut is a change of picture, not action
+            z = min(z, 0.5)
         if L:
             z += 0.8 * (L[k] - lmu) / lsd
         if sig["brightness"][k] < 35:
@@ -244,4 +278,6 @@ def summary(result: dict) -> dict:
         "win_at": g["win"]["onset"] if g["win"] else None,
         "final_attempt": g["final_attempt"],
         "fades": [(e["onset"], e["kind"]) for e in result["events"]],
+        "scene_cuts": (len(result["signals"]["scenes"]) if result["signals"].get("scenes") is not None
+                       else "not detected (this ffmpeg has no scdet filter)"),
     }

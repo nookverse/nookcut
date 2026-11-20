@@ -294,8 +294,8 @@ def suggest_copy(project_dir: str, count: int = 5) -> dict:
 
 @_tool(annotations=WRITES)
 def analyze_video(project_dir: str, wait: bool = True) -> dict:
-    """Step 2. Scan the recording (1-3 min for a 10-min 4K file): deaths, win, best moments,
-    silent audio, and what is said (when a speech model is installed; see `speech` in the result).
+    """Step 2. Scan the recording (1-3 min for a 10-min 4K file): deaths, win, best moments, scene
+    cuts, silent audio, and what is said (when a speech model is installed; see `speech` in the result).
     wait=false returns a job_id for job_status."""
     _ready()
     p = _path(project_dir, must_exist=True)

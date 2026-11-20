@@ -24,6 +24,9 @@ All notable changes to this project are documented here. The format follows
 - `hdr: keep` / `--hdr keep`: 10-bit HEVC HDR10/HLG output with the source's mastering and
   light-level metadata, on the GPU (VideoToolbox, NVENC, AMF, Quick Sync, VA-API; each test-encoded
   first) or `libx265`, with captions at paper white. `check_environment` reports `hdr`.
+- Scene cuts: ffmpeg's `scdet` runs on a 10 fps copy in the same decode as the scan (cut times to
+  0.1 s, no second decode). Cuts no longer count as action, and segment edges move onto a nearby cut
+  so no segment opens or closes with a flash of another shot. The analysis reports `scene_cuts`.
 - `fps` option (`--fps auto|60|30`).
 - `--moment "10:42=final blow"` sets key moments from the CLI; agents may pass the same text form.
 - `CREDITS.md`: the open-source projects and models NookCut uses, with their licenses.
@@ -35,6 +38,11 @@ All notable changes to this project are documented here. The format follows
   was still labelled HDR. They're now tone-mapped to SDR BT.709 (on the Apple GPU via `scale_vt`
   when available, else zscale + Hable on the CPU), and every output is tagged BT.709 limited range.
 - Speech captions drawn by libass used BT.601 colour correction; colours now land as written.
+- Sources tagged BT.601 (Elgato 4K captures label their video `smpte170m`) are converted to BT.709
+  explicitly, so older ffmpeg builds don't shift their colours either.
+- ffmpeg 9.0 crashes when converting the colour matrix of VideoToolbox-decoded 4K HEVC frames
+  directly; frames are converted to software format first. A crash inside ffmpeg is now reported
+  as one instead of an empty error.
 
 - Every render was 60 fps: 59.94 fps sources (PS5, Xbox, cameras) repeated a frame about every 17 s,
   and 25/50 fps sources stuttered. Output now matches the source's family (60000/1001, 60 or 50).

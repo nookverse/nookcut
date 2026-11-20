@@ -72,9 +72,18 @@ def tonemap_args(method: str) -> list[str]:
     return ["-init_hw_device", "videotoolbox=vt", "-filter_hw_device", "vt"] if method == "videotoolbox" else []
 
 
-def sdr_filter() -> str:
-    """SDR sources: limited range (some captures are full range). Only the range changes: an untagged
-    source would otherwise be read as BT.601 and converted, shifting its colours."""
+SD_MATRICES = ("smpte170m", "bt470bg")
+
+
+def sdr_filter(matrix: str | None = None) -> str:
+    """SDR sources -> BT.709, limited range (some captures are full range, some say BT.601, like
+    Elgato 4K recordings). A source tagged BT.601 is converted; an untagged one only changes range,
+    since reading it as BT.601 would shift its colours. (ffmpeg 7.1+ also converts on its own when
+    the output is tagged BT.709; this keeps older builds right.)"""
+    if matrix in SD_MATRICES:
+        # software frames first: ffmpeg 9.0 crashes converting the matrix of VideoToolbox-decoded
+        # 4K HEVC frames directly (seen on Elgato 4K captures)
+        return "format=yuv420p,scale=out_range=tv:out_color_matrix=bt709,format=yuv420p"
     return "scale=out_range=tv,format=yuv420p"
 
 
@@ -108,7 +117,7 @@ def pick_tonemap() -> str | None:
 
 def hdr_keep_filter(hdr: dict) -> str:
     """HDR frames -> 10-bit, limited range, in their own transfer (PS5 captures are full range)."""
-    return "scale=out_range=tv:out_color_matrix=bt2020,format=yuv420p10le"
+    return "format=yuv420p10le,scale=out_range=tv:out_color_matrix=bt2020,format=yuv420p10le"
 
 
 def color_tags(hdr: dict | None) -> list[str]:

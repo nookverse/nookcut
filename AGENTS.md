@@ -42,7 +42,7 @@ src/nookcut/
   preflight.py   ffmpeg/ffprobe/filters/encoders/font checks, install hints per OS
   brief.py       Brief: what the user wants (title, game, orientation, max length, region, music...)
   probe.py       ffprobe wrapper; audio peaks
-  analyze.py     64x36 @ 2 fps signal scan -> deaths/fades/win/moments (no ML)
+  analyze.py     64x36 @ 2 fps signal scan + scdet scene cuts -> deaths/fades/win/moments (no ML)
   story.py       story templates (comeback | victory | highlights) fitted to the length budget
   copywriting.py offline captions/titles/descriptions/hashtags from language packs (copydata/*.json)
   models.py      optional local models (whisper); `nookcut models install` is the only network code

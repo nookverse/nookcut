@@ -74,7 +74,7 @@ def color_plan(edit: dict, sdr_only: bool = False) -> dict:
     if src and edit.get("hdr") == "keep" and not sdr_only:
         return {"pre": color.hdr_keep_filter(src), "args": [], "hdr": src, "tonemap": None}
     if not src:
-        return {"pre": color.sdr_filter(), "args": [], "hdr": None, "tonemap": None}
+        return {"pre": color.sdr_filter(edit.get("source_matrix")), "args": [], "hdr": None, "tonemap": None}
     method = color.pick_tonemap()
     if not method:
         raise EnvironmentNotReady("This video is HDR, and converting it to normal colour needs ffmpeg's zscale "

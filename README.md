@@ -227,7 +227,7 @@ The same options work as CLI flags (`nookcut new` / `make`) and as arguments of 
 | `check_environment` | Checks ffmpeg, filters, encoders and fonts; shows the install command if anything is missing |
 | `auto_edit` | **The whole video in one call**: analyze, plan, captions, music, render, Resolve files and publish kit (takes the brief options and `template`) |
 | `create_project` | Saves the brief (see [Brief options](#brief-options)) |
-| `analyze_video` | Finds deaths, the win, action peaks and silent audio, and transcribes speech (when a model is installed) |
+| `analyze_video` | Finds deaths, the win, action peaks, scene cuts, pauses and silent audio, and transcribes speech (when a model is installed) |
 | `get_transcript` | What is said, as sentences with times, for quotes and cut points |
 | `plan_edit` | Builds the edit from a story template with built-in captions, or `tighten` (the whole recording minus its pauses) |
 | `suggest_copy` | Offline caption options per segment, plus titles, description, hashtags and a file name |
@@ -321,7 +321,9 @@ to the internet.
 1. **Detection, no ML.** The video is decoded at 2 fps to 64×36 pixels and measured: brightness, a red
    vignette at the screen edges, motion and loudness. A fade to black after a red damage vignette is a
    **death**; the first long fade after the last death is the **win**; motion and loudness peaks are
-   **highlights**. Thresholds live in `analyze.DEFAULTS`.
+   **highlights**. In the same decode, ffmpeg's `scdet` finds **scene cuts** (to 0.1 s): a cut doesn't
+   count as action, and no segment starts or ends with a few frames of another shot. Thresholds
+   live in `analyze.DEFAULTS`.
 2. **Story templates.**
    - **comeback**: hook → death montage with a counter → "ATTEMPT #N" → best moments → slow-mo finisher → question
    - **victory**: a win without deaths

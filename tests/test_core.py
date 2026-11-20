@@ -469,6 +469,7 @@ class Hdr(unittest.TestCase):
         sdr = r.color_plan({})["pre"]
         self.assertIn("out_range=tv", sdr)                     # SDR: limited range...
         self.assertNotIn("color_matrix", sdr)                  # ...without re-reading untagged colours as BT.601
+        self.assertIn("out_color_matrix=bt709", r.color_plan({"source_matrix": "smpte170m"})["pre"])  # Elgato
         with mock.patch("nookcut.color.pick_tonemap", return_value="videotoolbox"):
             plan = r.color_plan({"source_hdr": hdr, "hdr": "sdr"})
             self.assertIn("scale_vt", plan["pre"])
@@ -517,6 +518,38 @@ class Hdr(unittest.TestCase):
         self.assertEqual(Brief(title="t", source="x").hdr, "sdr")
         self.assertEqual(Brief(title="t", source="x", hdr="HDR10").hdr, "keep")
         self.assertEqual(Brief(title="t", source="x", hdr=True).hdr, "keep")
+
+
+class Scenes(unittest.TestCase):
+    def test_cuts_are_parsed_and_merged(self):
+        from nookcut.analyze import merge_cuts
+        text = ("frame:70 pts:70\nlavfi.scd.time=7\nframe:71\nlavfi.scd.time=7.2\n"
+                "lavfi.scd.time=11.3\nlavfi.scd.time=16.30\n")
+        self.assertEqual(merge_cuts(text), [7.0, 11.3, 16.3])   # 7.0 and 7.2 are one transition (a flash)
+        self.assertEqual(merge_cuts(""), [])
+
+    def test_segments_never_flash_another_shot(self):
+        from nookcut.edit import seg
+        from nookcut.story import clear_of_cuts
+        e = {"segments": [seg(9.5, 12.5, "highlight"),    # cut 0.5 s after the start: start on the new shot
+                          seg(20.0, 23.0, "highlight"),   # cut 0.3 s before the end: stop before it
+                          seg(30.0, 33.0, "highlight"),   # cut in the middle: a real cut, keep it
+                          seg(40.0, 41.2, "highlight"),   # would get shorter than 1 s: leave as is
+                          seg(50.0, 52.0, "death")]}      # frame-exact: never moved
+        clear_of_cuts(e, [10.0, 22.7, 31.5, 40.4, 50.3])
+        self.assertEqual([(x["src_in"], x["src_out"]) for x in e["segments"]],
+                         [(10.0, 12.5), (20.0, 22.7), (30.0, 33.0), (40.0, 41.2), (50.0, 52.0)])
+        self.assertIs(clear_of_cuts({"cut_by": "sentences", "segments": []}, [1.0])["cut_by"], "sentences")
+
+    def test_cuts_dont_count_as_action(self):
+        from nookcut.analyze import moment_scores
+        sig = fake_signals()
+        k = int(150 * sig["rate"])
+        sig["motion"][k] = 20.0                 # big change, but under the old z > 4 spike rule
+        plain = moment_scores(sig)[k]
+        sig["scenes"] = [150.0]
+        self.assertLessEqual(moment_scores(sig)[k], 0.5)
+        self.assertGreater(plain, 0.5)
 
 
 class FrameRate(unittest.TestCase):

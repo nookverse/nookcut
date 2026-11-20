@@ -55,6 +55,7 @@ def probe(path: str, task: Task | None = None) -> dict:
         "fps": num / den if den else 30.0,
         "timecode": timecode,
         "hdr": hdr,
+        "matrix": video.get("color_space") if video.get("color_space") not in (None, "", "unknown") else None,
         "dolby_vision": dolby,   # its extra shot-by-shot metadata isn't kept; the base picture is used
         "audio_tracks": [{"index": i, "peak_db": audio_peak(path, i, task=task)} for i in range(len(audio))],
     }

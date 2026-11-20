@@ -28,7 +28,7 @@ from .export import resolve_kit
 from .music import compose
 from .publish import write_kit
 from .render import preview, render
-from .story import add_speech, plan
+from .story import add_speech, clear_of_cuts, plan
 from .preflight import check, speech_status
 from .errors import Cancelled, EnvironmentNotReady, InputError, as_nookcut
 from .models import whisper_model
@@ -183,6 +183,7 @@ def make_plan(project: str, template: str | None = None) -> dict:
     edit = plan(brief, result, template, words)
     if words is not None:
         add_speech(edit, words, brief)
+    clear_of_cuts(edit, result["signals"].get("scenes"))
     ed.save(edit, p["edit"])
     return describe(edit)
 

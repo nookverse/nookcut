@@ -21,7 +21,7 @@ from .copywriting import Writer, caption_keys, wrap
 from .edit import output_fps, seg, total
 from .transcribe import caption_words, sentences, snap
 
-__all__ = ["add_speech", "choose_template", "plan", "wrap"]
+__all__ = ["add_speech", "choose_template", "clear_of_cuts", "plan", "wrap"]
 
 
 def choose_template(brief: Brief, analysis: dict) -> str:
@@ -44,7 +44,7 @@ def _base(brief: Brief, analysis: dict, template: str) -> dict:
             "fps": output_fps(info["fps"], brief.fps),
             "language": brief.language, "music": brief.music, "music_file": brief.music_file,
             "video_type": brief.video_type,
-            "source_hdr": info.get("hdr"), "hdr": brief.hdr,
+            "source_hdr": info.get("hdr"), "hdr": brief.hdr, "source_matrix": info.get("matrix"),
             "music_style": "taiko" if brief.video_type == "gameplay" else "pulse",
             "source_audio": brief.source_audio if analysis["signals"]["loudness"] else "mute",
             "source_timecode": info["timecode"], "source_fps": info["fps"],
@@ -263,6 +263,30 @@ def plan(brief: Brief, analysis: dict, template: str | None = None, words: list[
                              "or use the 'highlights' template")
         return comeback(brief, analysis, template)
     return highlights(brief, analysis)
+
+
+SHOT_EDGE = 0.7   # a scene cut this close inside a segment's edge would flash the other shot
+
+
+def clear_of_cuts(edit: dict, cuts: list[float] | None) -> dict:
+    """Move segment edges onto nearby scene cuts so no segment opens or closes with a few frames of
+    another shot. Only shortens segments, and keeps each at least a second long. Talking videos cut
+    on sentences and tightened talks are left alone (their cuts follow the speech)."""
+    if not cuts or edit.get("cut_by") in ("sentences", "pauses"):
+        return edit
+    for s in edit["segments"]:
+        if s["kind"] == "death":       # timed to the fade, frame-exact
+            continue
+        a, b = s["src_in"], s["src_out"]
+        head = [c for c in cuts if a < c <= a + SHOT_EDGE * s["speed"]]
+        tail = [c for c in cuts if b - SHOT_EDGE * s["speed"] <= c < b]
+        na = head[-1] if head else a
+        nb = tail[0] if tail else b
+        if (nb - na) / s["speed"] >= 1.0:
+            s["src_in"], s["src_out"] = round(na, 3), round(nb, 3)
+            if "words" in s:
+                s["words"] = [w for w in s["words"] if na <= (w[0] + w[1]) / 2 < nb]
+    return edit
 
 
 # cuts that must stay on the frame they were picked for (a death, the attempt card)

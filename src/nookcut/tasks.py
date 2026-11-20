@@ -297,6 +297,8 @@ def run(cmd: list[str], task: Task | None = None, step: str = "processing", *, p
                          "The file may be very long, on a slow drive, or damaged.")
     task.check()
     if p.returncode:
+        if p.returncode < 0 and not errors:  # killed by a signal: a crash inside ffmpeg itself
+            errors.append(f"ffmpeg crashed (signal {-p.returncode}) without an error message")
         raise explain_ffmpeg("\n".join(errors), step)
     return bytes(out)
 
