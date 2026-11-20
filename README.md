@@ -24,6 +24,8 @@ included), and writes a publish kit with titles, hashtags and region-aware posti
   highlighted. Talking videos are cut on whole sentences. Without the model, everything else still works.
 - **HDR handled.** PS5/Xbox HDR captures and iPhone HDR video are tone-mapped to normal colour (on the
   Apple GPU when available), or kept as 10-bit HDR10/HLG with `--hdr keep`.
+- **High frame rate.** 120 fps recordings give slow motion from real frames instead of invented ones,
+  and output matches the source's rate family (59.94, 60 or 50 fps).
 - **Dead air out.** The `tighten` template keeps the whole talk and cuts every pause, with clean
   jump cuts (no model needed).
 - **Online is optional.** If you allow it, your agent can research trends with its own web search to
@@ -154,7 +156,7 @@ nookcut make PROJECT --source raw.mp4 --title "..." [--game "..."] [--type gamep
              [--orientation vertical|square|wide] [--max 60] [--region "United States"] [--language en]
              [--platforms youtube_shorts,tiktok,instagram_reels] [--music ai|none|file] [--music-file song.mp3]
              [--source-audio keep|duck|mute] [--template comeback|victory|highlights|tighten] [--name file-name] [--online]
-             [--subtitles auto|on|off] [--speech-language auto|en|es|...] [--hdr sdr|keep]
+             [--subtitles auto|on|off] [--speech-language auto|en|es|...] [--hdr sdr|keep] [--fps auto|60|30]
 nookcut when India                 # posting windows in your own time zone
 nookcut copy show PROJECT          # other caption, title and hashtag options
 nookcut models install             # one-time 148 MB speech model for word-by-word captions (optional)

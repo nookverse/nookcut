@@ -219,7 +219,7 @@ def check_environment() -> dict:
 
 def _brief(source, title, video_type, game, orientation, max_duration, region, language, music, music_file,
            source_audio, platforms, key_moments, online, subtitles="auto", speech_language="auto",
-           hdr="sdr") -> Brief:
+           hdr="sdr", fps="auto") -> Brief:
     if not video_type:
         video_type = "gameplay" if game else "generic"
     return Brief(title=title, source=_path(source, must_exist=True), video_type=video_type, game=game,
@@ -227,7 +227,7 @@ def _brief(source, title, video_type, game, orientation, max_duration, region, l
                  music=music, music_file=_path(music_file, must_exist=bool(music_file)), source_audio=source_audio,
                  platforms=platforms or ["youtube_shorts", "tiktok", "instagram_reels"],
                  key_moments=key_moments or [], online=online, subtitles=subtitles,
-                 speech_language=speech_language or "auto", hdr=hdr or "sdr")
+                 speech_language=speech_language or "auto", hdr=hdr or "sdr", fps=fps or "auto")
 
 
 @_tool(annotations=WRITES)
@@ -236,7 +236,7 @@ def create_project(project_dir: str, source: str, title: str, video_type: str = 
                    language: str = "en", music: str = "ai", music_file: str = "", source_audio: str = "duck",
                    platforms: list[str] | str | None = None, key_moments: list[dict] | None = None,
                    online: bool = False, subtitles: str = "auto", speech_language: str = "auto",
-                   hdr: str = "sdr") -> dict:
+                   hdr: str = "sdr", fps: str = "auto") -> dict:
     """Step 1. Save the brief into project_dir. video_type: gameplay|talking|sports|tutorial|generic
     (empty = gameplay if game is set). orientation: vertical|square|wide. music: ai|none|file.
     source_audio: keep|duck|mute. platforms: youtube_shorts, tiktok, instagram_reels, facebook_reels,
@@ -244,10 +244,11 @@ def create_project(project_dir: str, source: str, title: str, video_type: str = 
     web research. subtitles: auto|on|off word-by-word captions of what is said (auto = when a speech
     model is installed). speech_language: auto or a code like en, es, hi. hdr (HDR sources only):
     sdr = convert to normal colour, plays right everywhere (default); keep = HDR10/HLG HEVC output,
-    only when the user asks for HDR. Relay any warnings."""
+    only when the user asks for HDR. fps: auto (60, matching 59.94/50 sources) | 60 | 30; high
+    frame rate sources (120 fps) give real-frame slow motion either way. Relay any warnings."""
     _ready()
     b = _brief(source, title, video_type, game, orientation, max_duration, region, language, music, music_file,
-               source_audio, platforms, key_moments, online, subtitles, speech_language, hdr)
+               source_audio, platforms, key_moments, online, subtitles, speech_language, hdr, fps)
     out = pl.new_project(_path(project_dir), b)
     out["next"] = "analyze_video (wait=false, then poll job_status)"
     return out

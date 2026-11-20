@@ -15,7 +15,7 @@ import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from .edit import seg_duration, timeline, total
+from .edit import fps_value, seg_duration, timeline, total
 from .errors import EnvironmentNotReady, MediaError, explain_ffmpeg
 from . import color
 from . import subtitles as subs
@@ -124,6 +124,13 @@ def _text(work, i, s, dur, L, font, W=0, H=0, speech=None, hdr=None):
     return f
 
 
+def needs_interpolation(edit: dict, s: dict) -> bool:
+    """Slow motion needs made-up frames only when the source has too few: source fps x speed below
+    the output rate (60 fps at 0.5x gives 30: interpolate; 120 fps at 0.5x gives 60: real frames)."""
+    src = float(edit.get("source_fps") or 30)
+    return s["speed"] < 1 and src * s["speed"] < fps_value(edit) * 0.95
+
+
 def _segment(edit, i, s, work, font, hwaccel, src_w, src_h, task=None, on_progress=None, encoder=None,
              look=None):
     look = look or color_plan(edit)
@@ -147,14 +154,15 @@ def _segment(edit, i, s, work, font, hwaccel, src_w, src_h, task=None, on_progre
             fg_w, fg_h = W, int(W * ch / cw) // 2 * 2
         x, y = (W - fg_w) // 2, (H - fg_h) // 2
     fg = f"crop='min({cw},iw)':'min({ch},ih)',scale={fg_w}:{fg_h}"
-    if s["speed"] < 1:
-        fg += ",minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:vsbmc=1"
+    rate = str(edit.get("fps") or 60)
+    if needs_interpolation(edit, s):  # only invent frames the source doesn't have (120 fps at 0.5x has them)
+        fg += f",minterpolate=fps={rate}:mi_mode=mci:mc_mode=aobmc:vsbmc=1"
     if s["kind"] == "card":
         fg += ",eq=brightness=-0.25:saturation=0.6"
     if (fg_w, fg_h) == (W, H):
-        graph = f"[0:v]{look['pre']},setpts=(PTS-STARTPTS)/{s['speed']},fps=60,{fg}"
+        graph = f"[0:v]{look['pre']},setpts=(PTS-STARTPTS)/{s['speed']},fps={rate},{fg}"
     else:
-        graph = (f"[0:v]{look['pre']},setpts=(PTS-STARTPTS)/{s['speed']},fps=60,split[a][b];"
+        graph = (f"[0:v]{look['pre']},setpts=(PTS-STARTPTS)/{s['speed']},fps={rate},split[a][b];"
                  f"[a]scale={W // 4}:{H // 4}:force_original_aspect_ratio=increase,crop={W // 4}:{H // 4},"
                  f"gblur=sigma=10,scale={W}:{H},eq=brightness=-0.18:saturation=0.8[bg];[b]{fg}[fg];"
                  f"[bg][fg]overlay={x}:{y}" + (":format=yuv420p10" if hdr else ""))
@@ -179,7 +187,7 @@ def _segment(edit, i, s, work, font, hwaccel, src_w, src_h, task=None, on_progre
     if hdr and enc["codec"] == "libx265":
         cmd += ["-x265-params", color.x265_params(hdr)]
     video = out if together or not has_audio else out[:-4] + "_v.mov"
-    cmd += ["-r", "60", video]
+    cmd += ["-r", rate, video]
     run(cmd, task, f"rendering segment {i + 1} ({s['kind']} at {s['src_in']:.1f}s)", progress=on_progress)
     if video != out:
         wav = out[:-4] + ".wav"

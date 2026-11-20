@@ -141,6 +141,7 @@ playbook (see `gemini-extension.json`), not contributor guidance.
 - HDR: GPU tone mapping is Apple-only (`scale_vt`); NVIDIA/Intel/AMD tone-map on the CPU (zscale)
   and still encode on the GPU. NVENC/AMF/QSV/VA-API 10-bit HEVC and their HDR10 metadata are
   untested (test-encoded before use). Moment detection reads HDR brightness without tone mapping.
-  Dolby Vision / HDR10+ dynamic metadata are dropped. Renders are fixed at 60 fps.
+  Dolby Vision / HDR10+ dynamic metadata are dropped (the base picture is used); Dolby Vision
+  profile 5 is refused. Output is at most 60 fps (high frame rate sources feed real-frame slow motion).
 - Detection is tuned on action games (death = fade after a red vignette); other genres fall back
   to the generic highlights template.

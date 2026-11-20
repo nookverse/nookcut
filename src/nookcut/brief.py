@@ -11,6 +11,7 @@ MUSIC_MODES = ("ai", "none", "file")
 SOURCE_AUDIO = ("keep", "duck", "mute")
 SUBTITLES = ("auto", "on", "off")
 HDR_MODES = ("sdr", "keep")
+FPS_MODES = ("auto", "60", "30")
 
 # Upload length caps in seconds for the short-form surfaces (check platform help pages; they change).
 PLATFORM_MAX = {"youtube_shorts": 180, "tiktok": 600, "instagram_reels": 180,
@@ -33,6 +34,8 @@ ALIASES = {
                      "mute": ("off", "none", "silent", "no")},
     "hdr": {"sdr": ("", "off", "no", "false", "convert", "tonemap", "tone_map", "auto"),
             "keep": ("on", "yes", "true", "hdr", "hdr10", "keep_hdr", "10bit", "10_bit")},
+    "fps": {"auto": ("", "source", "default", "match"), "60": ("60fps", "59.94", "smooth", "high"),
+            "30": ("30fps", "29.97", "small", "low")},
     "subtitles": {"auto": ("", "default"), "on": ("yes", "true", "always", "speech", "captions", "required"),
                   "off": ("no", "false", "none", "never")},
 }
@@ -87,6 +90,7 @@ class Brief:
     subtitles: str = "auto"                     # word-by-word speech captions: auto (if a model is installed) | on | off
     speech_language: str = "auto"               # spoken language for transcription ("auto" detects it)
     hdr: str = "sdr"                            # HDR sources: sdr (tone-mapped, plays everywhere) | keep (HDR10/HLG)
+    fps: str = "auto"                           # output frame rate: auto (60, or 59.94 for NTSC sources) | 60 | 30
 
     def __post_init__(self):
         self.video_type = canonical("video_type", self.video_type)
@@ -99,6 +103,7 @@ class Brief:
         if isinstance(self.hdr, bool):
             self.hdr = "keep" if self.hdr else "sdr"
         self.hdr = canonical("hdr", self.hdr)
+        self.fps = canonical("fps", str(int(self.fps)) if isinstance(self.fps, (int, float)) else self.fps)
         if isinstance(self.platforms, str):
             self.platforms = self.platforms.split(",")
         self.platforms = list(dict.fromkeys(canonical("platform", p) for p in self.platforms if str(p).strip()))
@@ -122,6 +127,8 @@ class Brief:
             raise ValueError(f"subtitles {self.subtitles!r} is unknown; use one of {', '.join(SUBTITLES)}")
         if self.hdr not in HDR_MODES:
             raise ValueError(f"hdr {self.hdr!r} is unknown; use one of {', '.join(HDR_MODES)}")
+        if self.fps not in FPS_MODES:
+            raise ValueError(f"fps {self.fps!r} is unknown; use one of {', '.join(FPS_MODES)}")
         if self.max_duration < 10:
             raise ValueError("max_duration must be at least 10 seconds")
         unknown = [p for p in self.platforms if p not in PLATFORM_MAX]

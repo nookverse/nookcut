@@ -504,10 +504,47 @@ class Hdr(unittest.TestCase):
         self.assertEqual(sound[-1], out[:-4] + ".wav")
         self.assertEqual((video[-1], mux[-1]), (out[:-4] + "_v.mov", out))  # sound muxed back per segment
 
+    def test_dolby_vision(self):
+        from nookcut.probe import dolby_vision
+        rec = lambda p, c: {"side_data_list": [{"side_data_type": "DOVI configuration record", "dv_profile": p,
+                                                "dv_bl_signal_compatibility_id": c}]}
+        self.assertIsNone(dolby_vision({}))
+        self.assertEqual(dolby_vision(rec(8, 4)), {"profile": 8, "base": "HLG"})     # iPhone: HLG picture inside
+        self.assertEqual(dolby_vision(rec(8, 1))["base"], "HDR10")
+        self.assertIsNone(dolby_vision(rec(5, 0))["base"])                         # no standard picture: refused
+
     def test_brief_hdr(self):
         self.assertEqual(Brief(title="t", source="x").hdr, "sdr")
         self.assertEqual(Brief(title="t", source="x", hdr="HDR10").hdr, "keep")
         self.assertEqual(Brief(title="t", source="x", hdr=True).hdr, "keep")
+
+
+class FrameRate(unittest.TestCase):
+    def test_output_rate_follows_the_source_family(self):
+        from nookcut.edit import fps_value, output_fps
+        self.assertEqual(output_fps(59.94006), "60000/1001")
+        self.assertEqual(output_fps(120), "60")
+        self.assertEqual(output_fps(119.88, "30"), "30000/1001")
+        self.assertEqual(output_fps(50), "50")
+        self.assertEqual(output_fps(25, "30"), "25")
+        self.assertAlmostEqual(fps_value({"fps": "60000/1001"}), 59.94, places=2)
+        self.assertEqual(fps_value({}), 60.0)                  # edits from before keep 60
+
+    def test_slow_motion_uses_real_frames_when_there_are_enough(self):
+        from nookcut.render import needs_interpolation
+        slow = {"speed": 0.5}
+        self.assertFalse(needs_interpolation({"source_fps": 120, "fps": "60"}, slow))
+        self.assertTrue(needs_interpolation({"source_fps": 60, "fps": "60"}, slow))
+        self.assertFalse(needs_interpolation({"source_fps": 59.94, "fps": "30000/1001"}, slow))
+        self.assertFalse(needs_interpolation({"source_fps": 30, "fps": "60"}, {"speed": 1.0}))
+        self.assertTrue(needs_interpolation({"source_fps": 240, "fps": "60"}, {"speed": 0.2}))
+
+    def test_brief_fps(self):
+        self.assertEqual(Brief(title="t", source="x").fps, "auto")
+        self.assertEqual(Brief(title="t", source="x", fps=30).fps, "30")
+        self.assertEqual(Brief(title="t", source="x", fps="59.94").fps, "60")
+        with self.assertRaises(ValueError):
+            Brief(title="t", source="x", fps="24").validate()
 
 
 class Tasks(unittest.TestCase):

@@ -38,6 +38,12 @@ def probe(path: str, task: Task | None = None) -> dict:
     timecode = next((s.get("tags", {}).get("timecode") for s in info["streams"]
                      if s.get("tags", {}).get("timecode")), "00:00:00:00")
     audio = [s for s in info["streams"] if s["codec_type"] == "audio"]
+    dolby = dolby_vision(video)
+    if dolby and dolby["base"] is None:
+        raise InputError(f"{os.path.basename(path)} is Dolby Vision profile {dolby['profile']}, which has no "
+                         "standard HDR or SDR picture inside, so its colours can't be shown correctly.",
+                         "Export it again as HDR10 or SDR (in the camera app, DaVinci Resolve or HandBrake), "
+                         "or record with Dolby Vision turned off.")
     hdr = hdr_from_probe(video)
     if hdr:  # mastering display / light level usually travel with the frames, not the stream
         hdr = hdr_from_probe(video, _first_frame(path, task))
@@ -49,8 +55,24 @@ def probe(path: str, task: Task | None = None) -> dict:
         "fps": num / den if den else 30.0,
         "timecode": timecode,
         "hdr": hdr,
+        "dolby_vision": dolby,   # its extra shot-by-shot metadata isn't kept; the base picture is used
         "audio_tracks": [{"index": i, "peak_db": audio_peak(path, i, task=task)} for i in range(len(audio))],
     }
+
+
+# Dolby Vision base-layer compatibility: what a player without Dolby Vision sees
+_DV_BASE = {1: "HDR10", 2: "SDR", 4: "HLG", 6: "HDR10"}
+
+
+def dolby_vision(video: dict) -> dict | None:
+    """Dolby Vision facts from the stream's configuration record, or None. base is None when there
+    is no standard picture underneath (profile 5: Dolby's own colour encoding, needs its metadata)."""
+    rec = next((sd for sd in video.get("side_data_list") or []
+                if sd.get("side_data_type") == "DOVI configuration record"), None)
+    if not rec:
+        return None
+    compat = int(rec.get("dv_bl_signal_compatibility_id", 0) or 0)
+    return {"profile": int(rec.get("dv_profile", 0) or 0), "base": _DV_BASE.get(compat)}
 
 
 def hdr_of(path: str, task: Task | None = None) -> dict | None:

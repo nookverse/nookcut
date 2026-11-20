@@ -18,7 +18,7 @@ from bisect import bisect_left
 from .analyze import best_windows, peak_times
 from .brief import Brief
 from .copywriting import Writer, caption_keys, wrap
-from .edit import seg, total
+from .edit import output_fps, seg, total
 from .transcribe import caption_words, sentences, snap
 
 __all__ = ["add_speech", "choose_template", "plan", "wrap"]
@@ -40,7 +40,8 @@ def _base(brief: Brief, analysis: dict, template: str) -> dict:
     w, h = brief.size
     info = analysis["signals"]["info"]
     return {"source": brief.source, "title": brief.title, "game": brief.game, "template": template,
-            "orientation": brief.orientation, "width": w, "height": h, "fps": 60,
+            "orientation": brief.orientation, "width": w, "height": h,
+            "fps": output_fps(info["fps"], brief.fps),
             "language": brief.language, "music": brief.music, "music_file": brief.music_file,
             "video_type": brief.video_type,
             "source_hdr": info.get("hdr"), "hdr": brief.hdr,

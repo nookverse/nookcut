@@ -42,6 +42,7 @@ download they run themselves; after that it works offline), and carry on without
 | key_moments | timestamps they already know ("win at 10:42") | none |
 | subtitles | word-by-word captions of what is said: auto, on, off | auto (on when a speech model is installed) |
 | speech_language | the spoken language, if not English and detection gets it wrong | auto |
+| fps | output frame rate: auto (60, matching 59.94/50 sources), 60 or 30 for smaller files | auto |
 | hdr | only for HDR recordings: sdr (converted, plays right everywhere) or keep (HDR10/HLG) | sdr; keep only if the user asks for HDR |
 | online | may you research trends on the web? (ask only if you have a search tool) | no |
 

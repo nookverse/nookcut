@@ -30,6 +30,22 @@ def save(edit: dict, path: str) -> None:
         json.dump(edit, f, indent=2, ensure_ascii=False)
 
 
+def output_fps(source_fps: float, choice: str = "auto") -> str:
+    """Output frame rate as ffmpeg writes it: 60 (or 30), in the source's family so frames aren't
+    repeated or dropped in a stutter: 60000/1001 for 59.94/29.97/23.976 sources, 50 (or 25) for
+    25/50/100 fps (PAL) sources."""
+    if abs(source_fps - round(source_fps)) < 0.01 and round(source_fps) in (25, 50, 100):
+        return "25" if choice == "30" else "50"
+    base = 30 if choice == "30" else 60
+    ntsc = abs(source_fps - round(source_fps)) > 0.01 and abs(source_fps * 1.001 - round(source_fps * 1.001)) < 0.02
+    return f"{base * 1000}/1001" if ntsc else str(base)
+
+
+def fps_value(edit: dict) -> float:
+    num, _, den = str(edit.get("fps") or 60).partition("/")
+    return float(num) / float(den or 1)
+
+
 def seg(src_in, src_out, kind, speed=1.0, top="", bottom="", zoom=1.0, hits=None, impact=None) -> dict:
     return {"src_in": round(src_in, 3), "src_out": round(src_out, 3), "speed": speed, "kind": kind,
             "top": top, "bottom": bottom, "zoom": zoom, "hits": hits or [], "impact": impact}

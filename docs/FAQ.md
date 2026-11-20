@@ -123,6 +123,20 @@ mastering and light-level metadata, encoded on the GPU when it can do 10-bit HEV
 other apps may convert it to SDR themselves, so check how it looks after posting. Dolby Vision and
 HDR10+ dynamic metadata aren't kept.
 
+**What about Dolby Vision and HDR10+?**
+Dolby Vision from an iPhone (profile 8.4) or with an HDR10 base (8.1, 7) works: NookCut uses the
+HLG or HDR10 picture inside. Profile 5 has no standard picture inside, so NookCut stops and asks you
+to export it as HDR10 or SDR. The shot-by-shot Dolby Vision and HDR10+ metadata isn't kept: after
+cropping, zooming and captions it would describe a different picture, and GPU encoders can't write
+it. HDR10+ files play as plain HDR10, and with `hdr: keep` the static HDR10 metadata is kept.
+
+**My recording is 120 fps. Is that useful?**
+Yes, for slow motion. At half speed a 120 fps source has 60 real frames per second, so NookCut uses
+them instead of inventing frames (sharper, and about 3 times faster to render). The output stays
+60 fps, which as far as we know is the most Shorts, TikTok and Reels play. It matches the source's
+family: 59.94 fps sources (PS5, Xbox, most cameras) give 59.94, 25/50 fps sources give 50. Use
+`--fps 30` for smaller files.
+
 **Does it use my GPU?**
 Yes, when it can. It test-encodes on NVIDIA, AMD, Intel or Apple hardware first and falls back to
 the CPU if none works or the GPU fails mid-render. `nookcut check` shows which encoder it picked.

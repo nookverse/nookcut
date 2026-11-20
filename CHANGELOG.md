@@ -24,6 +24,7 @@ All notable changes to this project are documented here. The format follows
 - `hdr: keep` / `--hdr keep`: 10-bit HEVC HDR10/HLG output with the source's mastering and
   light-level metadata, on the GPU (VideoToolbox, NVENC, AMF, Quick Sync, VA-API; each test-encoded
   first) or `libx265`, with captions at paper white. `check_environment` reports `hdr`.
+- `fps` option (`--fps auto|60|30`).
 - `CREDITS.md`: the open-source projects and models NookCut uses, with their licenses.
 - `nookcut --version`.
 - README: platform support table, alpha status, update and uninstall steps, full `make` options.
@@ -33,6 +34,13 @@ All notable changes to this project are documented here. The format follows
   was still labelled HDR. They're now tone-mapped to SDR BT.709 (on the Apple GPU via `scale_vt`
   when available, else zscale + Hable on the CPU), and every output is tagged BT.709 limited range.
 - Speech captions drawn by libass used BT.601 colour correction; colours now land as written.
+
+- Every render was 60 fps: 59.94 fps sources (PS5, Xbox, cameras) repeated a frame about every 17 s,
+  and 25/50 fps sources stuttered. Output now matches the source's family (60000/1001, 60 or 50).
+- Slow motion always invented frames with minterpolate, even from 120 fps sources. Real frames are
+  used whenever the source has enough (about 3 times faster for that segment).
+- Dolby Vision profile 5 (no standard picture inside) is now refused with a clear message instead
+  of rendering wrong colours.
 
 ### Changed
 - Built-in titles no longer restate the user's title ("It took me 17 tries took me 18 tries").

@@ -57,6 +57,7 @@ def _brief_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--online", action="store_true", help="the user allows the agent to research on the web")
     p.add_argument("--subtitles", default="auto", help="word-by-word speech captions: auto | on | off")
     p.add_argument("--speech-language", default="auto", help="spoken language, e.g. en or es (auto detects)")
+    p.add_argument("--fps", default="auto", help="output frame rate: auto (60, or 59.94/50 to match the source) | 60 | 30")
     p.add_argument("--hdr", default="sdr", help="HDR sources: sdr (convert, plays everywhere) | keep (HDR10/HLG HEVC)")
 
 
@@ -65,7 +66,7 @@ def _brief(a) -> Brief:
                  platforms=a.platforms.split(","), orientation=a.orientation, max_duration=a.max_duration,
                  region=a.region, language=a.language, music=a.music, music_file=a.music_file,
                  source_audio=a.source_audio, online=a.online, subtitles=a.subtitles,
-                 speech_language=a.speech_language, hdr=a.hdr)
+                 speech_language=a.speech_language, hdr=a.hdr, fps=a.fps)
 
 
 def _fail(e: BaseException, verbose: bool) -> int:
