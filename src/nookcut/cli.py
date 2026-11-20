@@ -44,7 +44,8 @@ def _print(obj) -> None:
 def _brief_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--source", required=True)
     p.add_argument("--title", required=True)
-    p.add_argument("--type", default="gameplay", dest="video_type")
+    p.add_argument("--type", default="", dest="video_type", help="gameplay | talking | sports | tutorial | generic "
+                   "(default: gameplay if --game is set, else generic)")
     p.add_argument("--game", default="")
     p.add_argument("--orientation", default="vertical")
     p.add_argument("--max", default="60", dest="max_duration", help="seconds, e.g. 60, 45s or 1:30")
@@ -62,7 +63,8 @@ def _brief_args(p: argparse.ArgumentParser) -> None:
 
 
 def _brief(a) -> Brief:
-    return Brief(title=a.title, source=a.source, video_type=a.video_type, game=a.game,
+    return Brief(title=a.title, source=a.source, video_type=a.video_type or ("gameplay" if a.game else "generic"),
+                 game=a.game,
                  platforms=a.platforms.split(","), orientation=a.orientation, max_duration=a.max_duration,
                  region=a.region, language=a.language, music=a.music, music_file=a.music_file,
                  source_audio=a.source_audio, online=a.online, subtitles=a.subtitles,
