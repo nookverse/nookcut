@@ -294,6 +294,32 @@ def auto_edit(source: str, title: str, project_dir: str = "", video_type: str = 
     return _run("auto_edit", project, work, wait)
 
 
+@_tool(annotations=WRITES)
+def script_to_video(script: str, title: str, project_dir: str = "", broll_dir: str = "",
+                    orientation: str = "vertical", language: str = "en", voice: str = "", voice_speed: float = 1.0,
+                    music: str = "ai", region: str = "", platforms: list[str] | str | None = None,
+                    video_type: str = "generic", file_name: str = "", wait: bool = True) -> dict:
+    """Make a video from a script, offline: each line is narrated (list_voices), shown over the
+    user's own B-roll from broll_dir (a clip named after a word in the line first) or a moving
+    background, with word captions, original music, checks, Resolve files and a publish kit.
+    One line per shot. Use the user's words; don't invent facts. Running it again rebuilds the
+    project's narration and edit. wait=false returns a job_id for job_status."""
+    _ready()
+    b = Brief(title=title, source="", video_type=video_type or "generic", orientation=orientation,
+              region=region, language=language or "en", music=music,
+              platforms=platforms or ["youtube_shorts", "tiktok", "instagram_reels"],
+              broll_dir=_path(broll_dir, must_exist=bool(broll_dir)), voice=voice or "", voice_speed=voice_speed or 1.0)
+    project = _path(project_dir) or _path(os.path.join(os.path.expanduser("~/NookCut"), pl.slug(title).lower()))
+
+    def work(t):
+        out = pl.make_from_script(project, b, script, file_name or None, task=t)
+        out["project"] = project
+        out["next"] = ("Show the user the video, checks and publish_kit. Change B-roll or captions with "
+                       "update_edit, then render_video; change the words by running script_to_video again.")
+        return out
+    return _run("script_to_video", project, work, wait)
+
+
 @_tool(annotations=READ_ONLY)
 def suggest_copy(project_dir: str, count: int = 5) -> dict:
     """Offline caption options for each segment, plus titles, a description, hashtags and a file

@@ -14,6 +14,13 @@ gave them). It returns the finished video, the publish kit and DaVinci Resolve f
 the `summary`, `video` and `publish_kit` paths, and offer changes (`suggest_copy` + `update_edit`,
 then `render_video`). The steps below give full control.
 
+## From a script (no recording)
+
+If the user has a script instead of a recording, use `script_to_video(script, title, broll_dir)`:
+one line per shot, in their words. Never invent facts or add claims they didn't make; if you help
+them write it, show them the script and get their approval before making the video. A natural voice
+needs Kokoro (`nookcut config kokoro`, run by the user); otherwise the computer's voice is used.
+
 ## 0. Environment first
 
 Call `check_environment`. If `ok` is false, stop and show the user exactly what is missing and the

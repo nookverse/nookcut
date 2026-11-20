@@ -38,6 +38,12 @@ tool result also says what to do next.
 **Do I need an agent at all?**
 No. `nookcut make` does everything from the command line.
 
+**Can it make a video from a script, without a recording?**
+Yes: `nookcut script PROJECT --script script.txt --title "..." --broll-dir clips/` (or the
+`script_to_video` tool). Each line is spoken offline and shown over your own clips or a moving
+background, with word captions and music. NookCut doesn't write the script or check its facts.
+For a natural voice, set up Kokoro first (`nookcut config kokoro`).
+
 **Can it add a voiceover?**
 Yes. Your agent writes a line for any segment (`update_edit` with `vo`), or `--voiceover captions`
 reads the hook and end captions aloud. The game sound and music duck under the voice, and the words

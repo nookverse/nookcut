@@ -27,6 +27,13 @@ All notable changes to this project are documented here. The format follows
 - Scene cuts: ffmpeg's `scdet` runs on a 10 fps copy in the same decode as the scan (cut times to
   0.1 s, no second decode). Cuts no longer count as action, and segment edges move onto a nearby cut
   so no segment opens or closes with a flash of another shot. The analysis reports `scene_cuts`.
+- Script to video (`script_to_video`, `nookcut script`): each line of the user's script narrated
+  offline, joined with short pauses, over a generated moving background that becomes the project's
+  "recording", with an exact transcript (word captions, `captions.srt`, `get_transcript`). One
+  segment per line; B-roll per line from the user's folder (named clips first, then unused ones;
+  a named clip continues where it left off); otherwise the line's opening words over the background.
+  `analyze_video` and `plan_edit` refuse script projects instead of replacing the script.
+- B-roll `fit` layout: the whole clip over a blurred copy of itself (landscape clips in vertical).
 - Voiceover: a `vo` line per segment, spoken on your computer (macOS `say`; espeak-ng and
   Windows' voice untested) or by your own program (`NOOKCUT_TTS_COMMAND`, no shell, server-side only).
   Lines are placed in output time, sped up at most 1.25x when they don't fit and reported if they

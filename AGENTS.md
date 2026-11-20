@@ -7,7 +7,7 @@ guidance. The playbook NookCut gives agents for *editing videos* is a separate f
 ## What NookCut is
 
 An MCP server, a CLI and an agent skill that turn a raw recording (gameplay, talking head, sports,
-tutorial) into a short-form video built to perform: detect the key moments, plan a story, compose
+tutorial), or a written script, into a short-form video built to perform: detect the key moments, plan a story, compose
 copyright-free music, render vertical/square/wide with captions, export an editable DaVinci Resolve
 timeline, and give region-aware posting times. It works fully offline with any MCP agent (small
 local models included): captions, titles and hashtags come from a built-in copy library, and
@@ -56,6 +56,7 @@ src/nookcut/
   render.py      parallel per-segment render + concat + audio mix; preview contact sheet
   config.py      ~/.config/nookcut/config.env (NOOKCUT_* settings for the CLI and the shared server)
   adapters/      programs NookCut runs but never imports (kokoro_say.py, run by the user's Kokoro Python)
+  script.py      script to video: lines, narration timing, per-line B-roll (script_to_video)
   voice.py       voiceover engines (system voice or the user's command), voice choice, cached lines
   broll.py       the user's B-roll folder: index, safe paths, keyword placement (cover/inset/split)
   qc.py          frame sheets (get_frames) and checks of a finished render (verify_video)

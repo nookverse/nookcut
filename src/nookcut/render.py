@@ -193,6 +193,11 @@ def _broll(edit: dict, s: dict, box: tuple, rate: str, dur: float, look_args: li
         steps = (f"{src},{fitted(w, h)}[br];[base][br]overlay={x}:{y}{on}[t1];"
                  f"[fg2]scale={iw}:{ih},{frame}[sm];[t1][sm]overlay={corner[0]}:{corner[1]}{on}[cv]")
         return args, steps, True
+    if layout == "fit":   # the whole clip, over a blurred, darker copy filling the box
+        steps = (f"{src},split[b1][b2];[b1]{fitted(w, h)},gblur=sigma=24,eq=brightness=-0.15[bb];"
+                 f"[b2]scale={w}:{h}:force_original_aspect_ratio=decrease,setsar=1[bf];"
+                 f"[bb][bf]overlay=(W-w)/2:(H-h)/2[br];[base][br]overlay={x}:{y}{on}[cv]")
+        return args, steps, False
     steps = f"{src},{fitted(w, h)}[br];[base][br]overlay={x}:{y}{on}[cv]"
     return args, steps, False
 

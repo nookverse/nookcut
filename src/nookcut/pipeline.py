@@ -87,8 +87,17 @@ def new_project(project: str, brief: Brief) -> dict:
     return {"project": project, "warnings": warnings}
 
 
+def _not_script(project: str) -> None:
+    """Script projects have no recording to scan or plan: refuse instead of replacing the script."""
+    if os.path.exists(paths(project)["brief"]) and Brief.load(paths(project)["brief"]).made_from == "script":
+        raise InputError("This project was made from a script, so there's no recording to analyse or plan.",
+                         "Change it with update_edit (B-roll, captions), or run script_to_video again with the "
+                         "new script.")
+
+
 def run_analysis(project: str, task: Task | None = None) -> dict:
     _need(paths(project)["brief"], "create_project (nookcut new)", "brief")
+    _not_script(project)
     with job(project, "analyze", task) as t:
         return _analyze(project, t)
 
@@ -176,6 +185,7 @@ def transcript(project: str, start: float = 0.0, end: float = 0.0) -> dict:
 
 
 def make_plan(project: str, template: str | None = None) -> dict:
+    _not_script(project)
     p = paths(project)
     _need(p["analysis"], "analyze_video (nookcut analyze)", "analysis")
     brief = Brief.load(p["brief"])
@@ -484,6 +494,114 @@ def make_kit(project: str, video: str, titles: list[str] | None = None, descript
 MAKE_STAGES = (("reading the source", 1), ("scanning the video", 6), ("measuring loudness", 2),
                ("detecting moments", 0.2), VOICE_STAGE, *SPEECH_STAGES, ("planning", 0.1), ("making music", 1), ("preparing", 0.3),
                ("rendering segments", 10), ("mixing audio", 0.7), ("checking the video", 0.5), ("finishing", 0.2))
+
+
+SCRIPT_STAGES = (("narrating", 3), ("making the background", 1.5), ("planning", 0.1), ("making music", 1),
+                 ("preparing", 0.3), ("rendering segments", 10), ("mixing audio", 0.7), ("checking the video", 0.5),
+                 ("finishing", 0.2))
+
+
+def make_from_script(project: str, brief: Brief, script_text: str, out_name: str | None = None,
+                     task: Task | None = None) -> dict:
+    """A video from a script, offline: narrate every line, build a moving background with the
+    narration as its sound, plan one segment per line with the user's B-roll, then the usual music,
+    render, checks, Resolve files and publish kit. Running it again rebuilds the narration (unchanged
+    lines are cached), base.mp4, transcript.json and edit.json."""
+    from . import script as sc
+    from .edit import output_fps
+    from .preflight import has_filter
+    from .tasks import state_dir
+    script_lines = sc.lines(script_text)
+    if not vc.engine():
+        raise EnvironmentNotReady("Script videos need a voice, and none works on this computer.",
+                                  "On macOS the built-in voice works; or run `nookcut config kokoro`, or set "
+                                  "NOOKCUT_TTS_COMMAND.")
+    name = vc.pick_voice(brief.language, brief.voice)
+    if name is None:
+        raise EnvironmentNotReady(f"No voice on this computer speaks '{brief.language}'.",
+                                  "Install one in the system settings, or run `nookcut config kokoro`.")
+    os.makedirs(project, exist_ok=True)
+    p = paths(project)
+    brief.made_from, brief.source = "script", os.path.join(os.path.abspath(project), "base.mp4")
+    brief.subtitles = "on"
+    warnings = brief.validate()
+    warnings = [w for w in warnings if "max_duration" not in w]   # a script is as long as it is
+    guess = sc.estimate(script_lines)
+    for plat in brief.platforms:
+        from .brief import PLATFORM_MAX
+        if PLATFORM_MAX.get(plat) and guess > PLATFORM_MAX[plat]:
+            warnings.append(f"the script runs about {guess:.0f} s; {plat} allows up to {PLATFORM_MAX[plat]} s")
+    with open(os.path.join(project, "script.txt"), "w", encoding="utf-8") as f:
+        f.write(script_text.strip() + "\n")
+    with job(project, "script", task) as t:
+        t.plan(*SCRIPT_STAGES)
+        t.fixed_plan = True
+        t.begin("narrating", len(script_lines), note=f"{len(script_lines)} lines, voice {name or 'your voice program'}")
+        cache = os.path.join(state_dir(project), "voice")
+        placed, at = [], 0.0
+        for k, line in enumerate(script_lines):
+            wav = vc.cached(sc.say_form(line), name or "", brief.voice_speed, cache, t, brief.language)
+            tight = wav[:-4] + ".trim.wav"
+            if not os.path.exists(tight):   # no silence before or after the words: line times are exact
+                run(["ffmpeg", "-v", "error", "-y", "-i", wav, "-af",
+                     "silenceremove=start_periods=1:start_threshold=-50dB,areverse,"
+                     "silenceremove=start_periods=1:start_threshold=-50dB,areverse", tight], t, "trimming a line")
+            length = float(qc._probe(tight, t)["format"]["duration"])
+            placed.append({"text": line, "file": tight, "start": round(at, 3), "end": round(at + length, 3),
+                           "words": sc.word_times(line, at, length)})
+            at += length + sc.GAP
+            t.set(k + 1)
+        total_len = round(placed[-1]["end"] + 0.6, 3)
+        t.begin("making the background", total_len)
+        narration = os.path.join(project, "narration.wav")
+        cmd, graph = ["ffmpeg", "-v", "error", "-y"], []
+        for k, line in enumerate(placed):
+            cmd += ["-i", line["file"]]
+            graph.append(f"[{k}:a]adelay={round(line['start'] * 1000)}:all=1[l{k}]")
+        graph.append("".join(f"[l{k}]" for k in range(len(placed))) +
+                     f"amix=inputs={len(placed)}:normalize=0:duration=longest,apad=whole_dur={total_len},"
+                     f"atrim=0:{total_len}[n]")
+        run(cmd + ["-filter_complex", ";".join(graph), "-map", "[n]", "-ar", "48000", "-ac", "1", narration], t,
+            "joining the narration")
+        w, h = brief.size
+        background = (f"gradients=s={w}x{h}:c0=0x0f1420:c1=0x1d2b4a:c2=0x2a1f3d:nb_colors=3:speed=0.004:rate=30"
+                      if has_filter("gradients") else f"color=c=0x141a26:s={w}x{h}:r=30,noise=alls=3:allf=t")
+        part = brief.source + ".part.mp4"
+        try:
+            run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"{background},format=yuv420p", "-i", narration,
+                 "-t", f"{total_len}", "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "veryfast",
+                 "-crf", "20", "-c:a", "aac", "-b:a", "192k", "-color_primaries", "bt709", "-color_trc", "bt709",
+                 "-colorspace", "bt709", "-color_range", "tv", part], t, "making the background", progress=t.set)
+            os.replace(part, brief.source)
+        finally:
+            if os.path.exists(part):
+                os.remove(part)
+        brief.save(p["brief"])
+        words = [w for line in placed for w in line["words"]]
+        _save_json(p["transcript"], {"model": "script", "language": brief.language, "tracks": [0], "words": words})
+        t.begin("planning")
+        files = broll_files(project, t) if brief.broll_dir else []
+        edit, notes = sc.build_edit(brief, {"duration": total_len, "fps": 30.0}, placed, files,
+                                    output_fps(30.0, brief.fps))
+        edit["broll_notes"] = notes
+        ed.save(edit, p["edit"])
+        copy = suggest_copy(project)
+        if brief.music != "none":
+            _music(project, None, t)
+        video = _render(project, out_name or copy["file_name"], t)
+        t.begin("checking the video", note="size, length, loudness, black or frozen picture")
+        checks = verify_render(project, video, t)
+        t.begin("finishing", note="DaVinci Resolve files and the publish kit")
+        resolve = make_resolve(project, video)
+        resolve["note"] = ("The Resolve timeline's main clip is the generated background (base.mp4); the narration "
+                           "is its sound. " + resolve.get("note", "")).strip()
+        kit = make_kit(project, video)
+    return {"video": os.path.abspath(video), "publish_kit": os.path.abspath(kit), "resolve": resolve,
+            "length_s": ed.total(edit), "lines": len(placed), "voice": name or "your voice program",
+            "broll": notes, "summary": f"{ed.total(edit):.0f} s {brief.orientation} video from {len(placed)} lines",
+            "titles": copy["titles"][:3], "warnings": warnings,
+            "checks": {"ok": checks["ok"], "issues": checks["issues"], "facts": checks["facts"],
+                       "frames": os.path.abspath(checks["frames"])}}
 
 
 def make_all(project: str, brief: Brief, template: str | None = None, out_name: str | None = None,

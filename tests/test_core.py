@@ -833,6 +833,63 @@ class Voiceover(unittest.TestCase):
         self.assertEqual([w[2] for w in e["segments"][0]["_vo_words"]], ["Short", "line."])
 
 
+class Script(unittest.TestCase):
+    def test_lines_and_how_they_are_said(self):
+        from nookcut import script as sc
+        from nookcut.errors import InputError
+        text = "First line.\n\n  Second   line, with spaces.\n" + "Long sentence here. " * 15
+        out = sc.lines(text)
+        self.assertEqual(out[:2], ["First line.", "Second line, with spaces."])
+        self.assertTrue(all(len(x) <= 220 for x in out))                 # a long line is split at sentence ends
+        self.assertEqual(sc.say_form("Rate it 1-10 & try #3"), "Rate it 1 to 10 and try number 3")
+        with self.assertRaises(InputError):
+            sc.lines("   ")
+        self.assertEqual(sc.headline("When he jumps, roll forward."), "WHEN HE JUMPS")
+
+    def _edit(self, files, words_per_line):
+        from nookcut import script as sc
+        from nookcut.brief import Brief
+        b = Brief(title="Beat the boss", source="base.mp4", broll_dir="")
+        placed, at = [], 0.0
+        for text in words_per_line:
+            length = len(text.split()) * 0.4
+            placed.append({"text": text, "start": at, "end": at + length, "words": sc.word_times(text, at, length)})
+            at += length + sc.GAP
+        return sc.build_edit(b, {"duration": at + 0.5, "fps": 30.0}, placed, files, "60")
+
+    def test_broll_per_line(self):
+        files = [{"file": "boss-arena.mp4", "still": False, "duration": 30.0, "width": 1920, "height": 1080},
+                 {"file": "phone.mp4", "still": False, "duration": 5.0, "width": 1080, "height": 1920},
+                 {"file": "map.png", "still": True, "duration": None, "width": 1600, "height": 900}]
+        e, notes = self._edit(files, ["Most players lose to the boss.", "Here is the trick.",
+                                      "Open the map first.", "The boss arena has pillars.", "Tell me your time."])
+        segs = e["segments"]
+        self.assertEqual([x.get("broll", {}).get("file") for x in segs],
+                         ["boss-arena.mp4", "phone.mp4", "map.png", "boss-arena.mp4", None])
+        self.assertEqual(segs[0]["broll"]["layout"], "fit")                # landscape in vertical: shown whole
+        self.assertEqual(segs[1]["broll"]["layout"], "cover")              # portrait fills the frame
+        self.assertGreater(segs[3]["broll"]["in"], 0)                      # named again: carries on in the clip
+        self.assertEqual(segs[4]["top"].replace("|", " "), "TELL ME YOUR TIME")   # nothing left: its words
+        self.assertEqual(segs[0]["kind"], "hook")
+        self.assertEqual(segs[0]["top"], "BEAT THE BOSS")
+        for a, b in zip(segs, segs[1:]):
+            self.assertAlmostEqual(a["src_out"], b["src_in"], places=3)    # cut at the pauses, nothing lost
+        self.assertTrue(all(x["words"] for x in segs) and e["subtitles"])
+        _, none = self._edit([], ["One.", "Two."])
+        self.assertIn("no B-roll folder", none[0])
+
+    def test_script_projects_refuse_analyze_and_plan(self):
+        import tempfile, os
+        from nookcut import pipeline as pl
+        from nookcut.brief import Brief
+        from nookcut.errors import InputError
+        with tempfile.TemporaryDirectory() as d:
+            Brief(title="t", source="base.mp4", made_from="script").save(os.path.join(d, "brief.json"))
+            for step in (lambda: pl.run_analysis(d), lambda: pl.make_plan(d)):
+                with self.assertRaises(InputError):
+                    step()
+
+
 class FrameRate(unittest.TestCase):
     def test_output_rate_follows_the_source_family(self):
         from nookcut.edit import fps_value, output_fps

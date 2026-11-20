@@ -26,6 +26,8 @@ included), and writes a publish kit with titles, hashtags and region-aware posti
   Apple GPU when available), or kept as 10-bit HDR10/HLG with `--hdr keep`.
 - **High frame rate.** 120 fps recordings give slow motion from real frames instead of invented ones,
   and output matches the source's rate family (59.94, 60 or 50 fps).
+- **Script to video.** Write a script; NookCut narrates it offline over your own B-roll (or a moving
+  background), with word captions, music and a publish kit.
 - **Dead air out.** The `tighten` template keeps the whole talk and cuts every pause, with clean
   jump cuts (no model needed).
 - **Online is optional.** If you allow it, your agent can research trends with its own web search to
@@ -44,7 +46,7 @@ included), and writes a publish kit with titles, hashtags and region-aware posti
 - [Brief options](#brief-options)
 - [MCP tools](#mcp-tools)
 - [What a project folder contains](#what-a-project-folder-contains)
-- [B-roll](#b-roll) · [Voiceover](#voiceover)
+- [Script to video](#script-to-video) · [B-roll](#b-roll) · [Voiceover](#voiceover)
 - [Captions in other languages](#captions-in-other-languages)
 - [Configuration](#configuration)
 - [Running it as a shared or remote server](#running-it-as-a-shared-or-remote-server)
@@ -163,6 +165,12 @@ nookcut make PROJECT --source raw.mp4 --title "..." [brief options] [--template 
 `--template` is `comeback`, `victory`, `highlights` or `tighten` (empty picks one), and `--name` sets
 the video's file name.
 
+Or from a script (one line per shot):
+
+```bash
+nookcut script PROJECT --script script.txt --title "..." [--broll-dir clips/] [--voice am_michael] [--orientation vertical]
+```
+
 Or step by step, editing `edit.json` (or using `nookcut copy show`) between steps:
 
 | Command | What it does |
@@ -235,6 +243,7 @@ The same options work as CLI flags (`nookcut new` / `make`) and as arguments of 
 | Tool | What it does |
 |---|---|
 | `check_environment` | Checks ffmpeg, filters, encoders and fonts; shows the install command if anything is missing |
+| `script_to_video` | **A video from a script in one call**: narrated line by line over your B-roll, with captions, music, checks and a publish kit |
 | `auto_edit` | **The whole video in one call**: analyze, plan, captions, music, render, Resolve files and publish kit (takes the brief options and `template`) |
 | `create_project` | Saves the brief (see [Brief options](#brief-options)) |
 | `analyze_video` | Finds deaths, the win, action peaks, scene cuts, pauses and silent audio, and transcribes speech (when a model is installed) |
@@ -297,6 +306,18 @@ lists every placement and why. Agents (or you, in `edit.json`) can place, move o
 segment with `update_edit`. Short clips loop, pictures drift slowly so they look alive, and B-roll
 that is HDR or BT.601 is converted like the main recording. B-roll isn't in the DaVinci Resolve
 EDL yet (its times are in `markers.txt`), and it can't be used with `hdr: keep`.
+
+## Script to video
+
+Write what the video should say, one line per shot, and run `nookcut script` (or `script_to_video`).
+Each line is narrated with your voice ([Voiceover](#voiceover)), shown over a clip from your B-roll
+folder (one named after a word in the line first, then the rest in order; landscape clips in a
+vertical video are shown whole over a blurred copy), and captioned word by word. When the clips run
+out, a line shows over a slowly moving background with its opening words. Music, checks, the
+Resolve files (whose main clip is the generated background) and the publish kit follow as usual.
+The words are yours: NookCut doesn't write or fact-check the script. To change a line, edit the
+script and run it again (unchanged lines aren't re-spoken); B-roll and captions can also be changed
+with `update_edit`.
 
 ## Voiceover
 

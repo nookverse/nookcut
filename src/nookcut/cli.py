@@ -191,6 +191,14 @@ def _main(argv: list[str] | None = None) -> int:
     n = sub.add_parser("new"); n.add_argument("project"); _brief_args(n)
     m = sub.add_parser("make"); m.add_argument("project"); _brief_args(m)
     m.add_argument("--template"); m.add_argument("--name", default="", help="output file name (no extension)")
+    sc = sub.add_parser("script", help="make a video from a script: narrated, over your B-roll")
+    sc.add_argument("project"); sc.add_argument("--script", required=True, help="text file, one line per shot")
+    sc.add_argument("--title", required=True)
+    for flag, default in (("--orientation", "vertical"), ("--language", "en"), ("--voice", ""), ("--music", "ai"),
+                          ("--broll-dir", ""), ("--region", ""), ("--type", "generic"), ("--name", ""), ("--fps", "auto"),
+                          ("--platforms", "youtube_shorts,tiktok,instagram_reels")):
+        sc.add_argument(flag, default=default)
+    sc.add_argument("--voice-speed", type=float, default=1.0)
     cp = sub.add_parser("copy", help="built-in offline captions, titles and hashtags")
     cp.add_argument("action", choices=("show", "init")); cp.add_argument("target", help="project (show) or language (init)")
     md = sub.add_parser("models", help="optional local models (speech-to-text); the only thing NookCut downloads")
@@ -296,7 +304,7 @@ def _main(argv: list[str] | None = None) -> int:
         if a.action == "install":
             print(agents.install_skill(a.target or "claude")); return 0
         print(agents.export_rules(a.target or "agents-md", a.dir)); return 0
-    if a.cmd in ("new", "make", "analyze", "plan", "preview", "music", "render", "resolve"):
+    if a.cmd in ("new", "make", "script", "analyze", "plan", "preview", "music", "render", "resolve"):
         env = check()
         if not env["ok"]:
             raise EnvironmentNotReady(f"This computer is missing what NookCut needs: {', '.join(env['missing'])}.",
@@ -317,6 +325,18 @@ def _main(argv: list[str] | None = None) -> int:
         _print(pl.make_resolve(a.project, a.render))
     elif a.cmd == "when":
         _print(posting_windows(a.region, a.tz))
+    elif a.cmd == "script":
+        with open(a.script, encoding="utf-8") as f:
+            text = f.read()
+        b = Brief(title=a.title, source="", video_type=a.type, orientation=a.orientation, language=a.language,
+                  music=a.music, broll_dir=a.broll_dir, region=a.region, voice=a.voice, voice_speed=a.voice_speed,
+                  fps=a.fps, platforms=a.platforms.split(","))
+        task, ui = _task("script", a.project, a.quiet)
+        try:
+            _print(pl.make_from_script(a.project, b, text, a.name or None, task=task))
+        finally:
+            if ui:
+                ui.close()
     elif a.cmd == "make":
         task, ui = _task("make", a.project, a.quiet)
         try:

@@ -11,6 +11,7 @@ picture layer: its cut points, speed, sound, captions and music stay as they are
   cover  the B-roll fills the picture area (the speaker keeps talking underneath)
   inset  one picture full-size, the other in a box in the corner
   split  side by side, half each
+  fit    the whole clip, over a blurred copy of itself (a landscape clip in a vertical video)
 """
 from __future__ import annotations
 
@@ -23,7 +24,7 @@ from .tasks import Task, run
 
 VIDEO_EXT = (".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi")
 IMAGE_EXT = (".jpg", ".jpeg", ".png", ".webp", ".heic", ".bmp")
-LAYOUTS = ("cover", "inset", "split")
+LAYOUTS = ("cover", "fit", "inset", "split")
 MAX_FILES = 300
 # auto-placement: how long one B-roll shot lasts, and how much of the video B-roll may cover
 SHOT_MAX = 4.0
