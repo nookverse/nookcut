@@ -22,6 +22,8 @@ included), and writes a publish kit with titles, hashtags and region-aware posti
 - **Speech captions, offline.** With a one-time `nookcut models install`, NookCut transcribes speech
   with ffmpeg's built-in Whisper filter and captions it word by word, with the spoken word
   highlighted. Talking videos are cut on whole sentences. Without the model, everything else still works.
+- **HDR handled.** PS5/Xbox HDR captures and iPhone HDR video are tone-mapped to normal colour (on the
+  Apple GPU when available), or kept as 10-bit HDR10/HLG with `--hdr keep`.
 - **Dead air out.** The `tighten` template keeps the whole talk and cuts every pause, with clean
   jump cuts (no model needed).
 - **Online is optional.** If you allow it, your agent can research trends with its own web search to
@@ -74,6 +76,9 @@ folder you can open in DaVinci Resolve. To let an agent do it, see [Connect an a
   Homebrew's `ffmpeg-full` has it, and `nookcut check` shows whether yours does) and a speech model
   from `nookcut models install` (148 MB by default, downloaded once). `libass` (the `ass` filter)
   adds the highlighted-word style; without it, phrases are shown plain.
+- For **HDR recordings**: ffmpeg's `zscale` filter (libzimg) to convert them to normal colour; on
+  Apple silicon the GPU (`scale_vt`) does it instead. `--hdr keep` needs a 10-bit HEVC encoder (the
+  GPU's, or `libx265`). `nookcut check` shows what works under `hdr`.
 - Optional: a GPU. NookCut encodes on NVIDIA (NVENC), AMD (AMF / VA-API), Intel (Quick Sync / VA-API)
   or Apple (VideoToolbox) when one works, and falls back to the CPU otherwise.
 
@@ -149,7 +154,7 @@ nookcut make PROJECT --source raw.mp4 --title "..." [--game "..."] [--type gamep
              [--orientation vertical|square|wide] [--max 60] [--region "United States"] [--language en]
              [--platforms youtube_shorts,tiktok,instagram_reels] [--music ai|none|file] [--music-file song.mp3]
              [--source-audio keep|duck|mute] [--template comeback|victory|highlights|tighten] [--name file-name] [--online]
-             [--subtitles auto|on|off] [--speech-language auto|en|es|...]
+             [--subtitles auto|on|off] [--speech-language auto|en|es|...] [--hdr sdr|keep]
 nookcut when India                 # posting windows in your own time zone
 nookcut copy show PROJECT          # other caption, title and hashtag options
 nookcut models install             # one-time 148 MB speech model for word-by-word captions (optional)
@@ -225,6 +230,7 @@ you leave out fall back to English. Packs are plain JSON, so they work offline t
 | `NOOKCUT_NICE` | `10` | ffmpeg priority (0 turns lowering off) |
 | `NOOKCUT_ALLOWED_DIRS` | unrestricted | Folders the MCP tools may read and write (`:`-separated; `;` on Windows) |
 | `NOOKCUT_COPY_DIR` | `~/.nookcut/copy` | Where your language packs live |
+| `NOOKCUT_TONEMAP` | auto | HDR to SDR: `videotoolbox` (Apple GPU) or `cpu` (zscale); auto tries the GPU first |
 | `NOOKCUT_MODELS_DIR` | `~/.nookcut/models` | Where `nookcut models install` puts speech models |
 | `NOOKCUT_WHISPER_MODEL` | best installed | Speech model to use: a name (`base`, `small`, ...) or a `.bin` path |
 | `NOOKCUT_TOKEN` / `NOOKCUT_TOKEN_FILE` | none | Bearer token for the HTTP transport |

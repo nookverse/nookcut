@@ -12,7 +12,7 @@ import struct
 
 from .transcribe import phrases
 
-HIGHLIGHT = "&H0000D4FF&"   # ASS colours are &HAABBGGRR: this is #FFD400
+HIGHLIGHT_RGB = "0xFFD400"  # the spoken word (ASS writes colours as &HAABBGGRR)
 HOLD = 0.35                 # keep a phrase up across gaps shorter than this (no flicker)
 
 
@@ -79,16 +79,27 @@ def timed_phrases(words: list[list], dur: float, max_chars: int, max_words: int 
     return out
 
 
+def _ass_colour(hex_rgb: str) -> str:
+    """0xRRGGBB -> ASS &H00BBGGRR."""
+    v = hex_rgb.removeprefix("0x")
+    return f"&H00{v[4:6]}{v[2:4]}{v[0:2]}"
+
+
 def ass(words: list[list], dur: float, width: int, height: int, y: int, size: int, font: str,
-        max_chars: int) -> str:
-    """An .ass script for one segment: phrase by phrase, the spoken word highlighted."""
+        max_chars: int, colour=None) -> str:
+    """An .ass script for one segment: phrase by phrase, the spoken word highlighted.
+    colour(0xRRGGBB) -> 0xRRGGBB adapts the text colours to the output (HDR: paper white)."""
     family, bold = font_family(font)
+    colour = colour or (lambda c: c)
+    white, highlight = _ass_colour(colour("0xFFFFFF")), _ass_colour(colour(HIGHLIGHT_RGB)) + "&"
     lines = ["[Script Info]", "ScriptType: v4.00+", f"PlayResX: {width}", f"PlayResY: {height}",
-             "WrapStyle: 2", "ScaledBorderAndShadow: yes", "", "[V4+ Styles]",
+             "WrapStyle: 2", "ScaledBorderAndShadow: yes",
+             "YCbCr Matrix: None",  # no BT.601 colour correction: colours land as written, in SDR and HDR
+             "", "[V4+ Styles]",
              "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, "
              "Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
              "Alignment, MarginL, MarginR, MarginV, Encoding",
-             f"Style: Speech,{family},{size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H90000000,{-1 if bold else 0},"
+             f"Style: Speech,{family},{size},{white},{white},&H00000000,&H90000000,{-1 if bold else 0},"
              f"0,0,0,100,100,1,0,1,{max(3, size // 14)},{max(2, size // 30)},8,40,40,0,1",
              "", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"]
     pos = f"{{\\an8\\pos({width // 2},{y})}}"
@@ -99,7 +110,7 @@ def ass(words: list[list], dur: float, width: int, height: int, y: int, size: in
             if end - start < 0.01:
                 continue
             text = " ".join(
-                f"{{\\c{HIGHLIGHT}\\fscx108\\fscy108\\t(0,90,\\fscx100\\fscy100)}}{_clean(x[2])}{{\\r}}" if j == k
+                f"{{\\c{highlight}\\fscx108\\fscy108\\t(0,90,\\fscx100\\fscy100)}}{_clean(x[2])}{{\\r}}" if j == k
                 else _clean(x[2]) for j, x in enumerate(g))
             lines.append(f"Dialogue: 0,{_ts(start)},{_ts(end)},Speech,,0,0,0,,{pos}{text}")
     return "\n".join(lines) + "\n"

@@ -118,7 +118,17 @@ def _analyze(project: str, t: Task) -> dict:
                      f"{quiet:.0f} s of pauses; template 'tighten' cuts them out" if brief.video_type in
                      ("talking", "tutorial", "generic") else f"{quiet:.0f} s of quiet moments")
     out["speech"] = _transcribe(project, brief, tracks, env, speech, t, info["duration"])
+    out["hdr"] = _hdr_note(info.get("hdr"), brief)
     return out
+
+
+def _hdr_note(hdr: dict | None, brief: Brief) -> str:
+    if not hdr:
+        return "no (SDR source)"
+    kind = "HDR10 (PQ)" if hdr["transfer"] == "pq" else "HLG"
+    if brief.hdr == "keep":
+        return f"{kind}; kept as HDR (10-bit HEVC)"
+    return f"{kind}; converted to normal colour (SDR) so it plays right everywhere; hdr='keep' keeps it HDR"
 
 
 def _transcribe(project: str, brief: Brief, tracks: list, env, speech: dict, t: Task, duration: float) -> dict:

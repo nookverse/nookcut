@@ -111,6 +111,18 @@ Linux. Reports from Windows users are very welcome.
 ffmpeg runs at lower priority, and by default at most half your CPU cores (up to 4) render in
 parallel. Set `NOOKCUT_WORKERS` and `NOOKCUT_NICE` to change that.
 
+**My recording is HDR (PS5, Xbox, iPhone). Will it look right?**
+Yes. NookCut detects HDR10 and HLG and converts them to normal colour (SDR), so the short looks right
+on every phone and platform. On Apple silicon the GPU does the conversion; elsewhere ffmpeg's
+`zscale` filter does it on the CPU. Before this, HDR sources came out grey and washed out.
+
+**Can I keep HDR?**
+Yes: `--hdr keep` (or `hdr: "keep"`). You get 10-bit HEVC (HDR10 or HLG) with the source's
+mastering and light-level metadata, encoded on the GPU when it can do 10-bit HEVC, else with
+`libx265`. Captions are drawn at paper white (203 nits) so they don't glare. YouTube shows HDR;
+other apps may convert it to SDR themselves, so check how it looks after posting. Dolby Vision and
+HDR10+ dynamic metadata aren't kept.
+
 **Does it use my GPU?**
 Yes, when it can. It test-encodes on NVIDIA, AMD, Intel or Apple hardware first and falls back to
 the CPU if none works or the GPU fails mid-render. `nookcut check` shows which encoder it picked.

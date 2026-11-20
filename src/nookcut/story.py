@@ -43,6 +43,7 @@ def _base(brief: Brief, analysis: dict, template: str) -> dict:
             "orientation": brief.orientation, "width": w, "height": h, "fps": 60,
             "language": brief.language, "music": brief.music, "music_file": brief.music_file,
             "video_type": brief.video_type,
+            "source_hdr": info.get("hdr"), "hdr": brief.hdr,
             "music_style": "taiko" if brief.video_type == "gameplay" else "pulse",
             "source_audio": brief.source_audio if analysis["signals"]["loudness"] else "mute",
             "source_timecode": info["timecode"], "source_fps": info["fps"],

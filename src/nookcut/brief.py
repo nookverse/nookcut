@@ -10,6 +10,7 @@ ORIENTATIONS = {"vertical": (1080, 1920), "square": (1080, 1080), "wide": (1920,
 MUSIC_MODES = ("ai", "none", "file")
 SOURCE_AUDIO = ("keep", "duck", "mute")
 SUBTITLES = ("auto", "on", "off")
+HDR_MODES = ("sdr", "keep")
 
 # Upload length caps in seconds for the short-form surfaces (check platform help pages; they change).
 PLATFORM_MAX = {"youtube_shorts": 180, "tiktok": 600, "instagram_reels": 180,
@@ -30,6 +31,8 @@ ALIASES = {
               "file": ("own", "mine", "my_file")},
     "source_audio": {"keep": ("on", "original", "full"), "duck": ("lower", "quiet", "background", ""),
                      "mute": ("off", "none", "silent", "no")},
+    "hdr": {"sdr": ("", "off", "no", "false", "convert", "tonemap", "tone_map", "auto"),
+            "keep": ("on", "yes", "true", "hdr", "hdr10", "keep_hdr", "10bit", "10_bit")},
     "subtitles": {"auto": ("", "default"), "on": ("yes", "true", "always", "speech", "captions", "required"),
                   "off": ("no", "false", "none", "never")},
 }
@@ -83,6 +86,7 @@ class Brief:
     online: bool = False                        # user allowed the agent to research on the web (opt-in)
     subtitles: str = "auto"                     # word-by-word speech captions: auto (if a model is installed) | on | off
     speech_language: str = "auto"               # spoken language for transcription ("auto" detects it)
+    hdr: str = "sdr"                            # HDR sources: sdr (tone-mapped, plays everywhere) | keep (HDR10/HLG)
 
     def __post_init__(self):
         self.video_type = canonical("video_type", self.video_type)
@@ -92,6 +96,9 @@ class Brief:
         if isinstance(self.subtitles, bool):
             self.subtitles = "on" if self.subtitles else "off"
         self.subtitles = canonical("subtitles", self.subtitles)
+        if isinstance(self.hdr, bool):
+            self.hdr = "keep" if self.hdr else "sdr"
+        self.hdr = canonical("hdr", self.hdr)
         if isinstance(self.platforms, str):
             self.platforms = self.platforms.split(",")
         self.platforms = list(dict.fromkeys(canonical("platform", p) for p in self.platforms if str(p).strip()))
@@ -113,6 +120,8 @@ class Brief:
             raise ValueError(f"source_audio {self.source_audio!r} is unknown; use one of {', '.join(SOURCE_AUDIO)}")
         if self.subtitles not in SUBTITLES:
             raise ValueError(f"subtitles {self.subtitles!r} is unknown; use one of {', '.join(SUBTITLES)}")
+        if self.hdr not in HDR_MODES:
+            raise ValueError(f"hdr {self.hdr!r} is unknown; use one of {', '.join(HDR_MODES)}")
         if self.max_duration < 10:
             raise ValueError("max_duration must be at least 10 seconds")
         unknown = [p for p in self.platforms if p not in PLATFORM_MAX]
@@ -126,6 +135,9 @@ class Brief:
             want = PLATFORM_ORIENTATION.get(p)
             if want and want != self.orientation:
                 warnings.append(f"{p} performs best {want}; brief is {self.orientation}")
+        if self.hdr == "keep":
+            warnings.append("hdr: keep applies to HDR recordings only (SDR ones stay SDR) and makes HEVC "
+                            "HDR video; YouTube shows it as HDR, other apps may convert it to SDR themselves")
         if self.video_type == "gameplay" and not self.game:
             warnings.append("game name is empty; research and captions will be weaker")
         return warnings

@@ -57,6 +57,7 @@ def _brief_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--online", action="store_true", help="the user allows the agent to research on the web")
     p.add_argument("--subtitles", default="auto", help="word-by-word speech captions: auto | on | off")
     p.add_argument("--speech-language", default="auto", help="spoken language, e.g. en or es (auto detects)")
+    p.add_argument("--hdr", default="sdr", help="HDR sources: sdr (convert, plays everywhere) | keep (HDR10/HLG HEVC)")
 
 
 def _brief(a) -> Brief:
@@ -64,7 +65,7 @@ def _brief(a) -> Brief:
                  platforms=a.platforms.split(","), orientation=a.orientation, max_duration=a.max_duration,
                  region=a.region, language=a.language, music=a.music, music_file=a.music_file,
                  source_audio=a.source_audio, online=a.online, subtitles=a.subtitles,
-                 speech_language=a.speech_language)
+                 speech_language=a.speech_language, hdr=a.hdr)
 
 
 def _fail(e: BaseException, verbose: bool) -> int:
@@ -196,7 +197,11 @@ def _main(argv: list[str] | None = None) -> int:
             print(f"{x['start']:8.2f}  {x['text']}")
         return 0
     if a.cmd == "check":
-        r = check(); _print(r); return 0 if r["ok"] else 1
+        r = check()
+        if r["ok"]:
+            from .preflight import hdr_status
+            r["hdr"] = hdr_status()
+        _print(r); return 0 if r["ok"] else 1
     if a.cmd == "setup":
         from . import agents
         names = agents.platforms() if a.platform == "all" else [a.platform]

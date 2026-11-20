@@ -6,6 +6,7 @@ import math
 import os
 from array import array
 
+from .color import hdr_from_probe
 from .errors import InputError, MediaError
 from .tasks import Task, run
 
@@ -16,7 +17,8 @@ def probe(path: str, task: Task | None = None) -> dict:
         raise InputError(f"The source video can't be found: {path}", "Check the path and that the drive is mounted.")
     try:
         out = run(["ffprobe", "-v", "error", "-show_entries",
-                   "format=duration:stream=index,codec_type,codec_name,width,height,r_frame_rate"
+                   "format=duration:stream=index,codec_type,codec_name,width,height,r_frame_rate,pix_fmt,"
+                   "color_transfer,color_primaries,color_space,color_range:stream_side_data"
                    ":stream_tags=timecode", "-of", "json", path], task, "reading the source", capture=True,
                   timeout=120)
     except MediaError as e:
@@ -36,6 +38,9 @@ def probe(path: str, task: Task | None = None) -> dict:
     timecode = next((s.get("tags", {}).get("timecode") for s in info["streams"]
                      if s.get("tags", {}).get("timecode")), "00:00:00:00")
     audio = [s for s in info["streams"] if s["codec_type"] == "audio"]
+    hdr = hdr_from_probe(video)
+    if hdr:  # mastering display / light level usually travel with the frames, not the stream
+        hdr = hdr_from_probe(video, _first_frame(path, task))
     return {
         "path": path,
         "duration": duration,
@@ -43,8 +48,30 @@ def probe(path: str, task: Task | None = None) -> dict:
         "height": video["height"],
         "fps": num / den if den else 30.0,
         "timecode": timecode,
+        "hdr": hdr,
         "audio_tracks": [{"index": i, "peak_db": audio_peak(path, i, task=task)} for i in range(len(audio))],
     }
+
+
+def hdr_of(path: str, task: Task | None = None) -> dict | None:
+    """Just the HDR facts of a file (for edits planned before NookCut knew about HDR)."""
+    try:
+        out = run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                   "stream=pix_fmt,color_transfer,color_primaries,color_space,color_range", "-of", "json", path],
+                  task, "reading the colour format", capture=True, timeout=60)
+        video = (json.loads(out).get("streams") or [{}])[0]
+    except (MediaError, ValueError):
+        return None
+    return hdr_from_probe(video, _first_frame(path, task)) if hdr_from_probe(video) else None
+
+
+def _first_frame(path: str, task: Task | None) -> dict:
+    try:
+        out = run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-read_intervals", "%+#1",
+                   "-show_frames", "-of", "json", path], task, "reading HDR details", capture=True, timeout=60)
+        return (json.loads(out).get("frames") or [{}])[0]
+    except (MediaError, ValueError):
+        return {}
 
 
 def audio_peak(path: str, track: int, seconds: float = 0, task: Task | None = None) -> float:

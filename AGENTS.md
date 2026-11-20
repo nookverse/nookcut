@@ -46,6 +46,7 @@ src/nookcut/
   story.py       story templates (comeback | victory | highlights) fitted to the length budget
   copywriting.py offline captions/titles/descriptions/hashtags from language packs (copydata/*.json)
   models.py      optional local models (whisper); `nookcut models install` is the only network code
+  color.py       HDR: detect HDR10/HLG, tone map to SDR (Apple GPU or zscale), HDR10 output, caption colours
   transcribe.py  speech to text with ffmpeg's whisper filter; quiet parts cut out for accurate times
   subtitles.py   word-by-word .ass captions for the render, .srt for export
   edit.py        the edit.json contract (segments, kinds, validation)
@@ -137,5 +138,9 @@ playbook (see `gemini-extension.json`), not contributor guidance.
   lack it (`speech_to_text.how` says so). Several audio tracks are mixed before transcribing, so a
   separate mic track isn't singled out. Hooks don't yet come from the transcript automatically
   (agents can pick quotes with `get_transcript`).
+- HDR: GPU tone mapping is Apple-only (`scale_vt`); NVIDIA/Intel/AMD tone-map on the CPU (zscale)
+  and still encode on the GPU. NVENC/AMF/QSV/VA-API 10-bit HEVC and their HDR10 metadata are
+  untested (test-encoded before use). Moment detection reads HDR brightness without tone mapping.
+  Dolby Vision / HDR10+ dynamic metadata are dropped. Renders are fixed at 60 fps.
 - Detection is tuned on action games (death = fade after a red vignette); other genres fall back
   to the generic highlights template.

@@ -16,11 +16,13 @@ software or models below: it runs the tools you install, or downloads a model on
 | [x264](https://www.videolan.org/developers/x264.html) (through FFmpeg) | H.264 encoding on the CPU | GPL 2+ |
 | [whisper.cpp](https://github.com/ggml-org/whisper.cpp) and [ggml](https://github.com/ggml-org/ggml) (FFmpeg's `whisper` filter) | Offline speech-to-text for speech captions | MIT |
 | [OpenAI Whisper](https://github.com/openai/whisper) models, in whisper.cpp's ggml format | The speech models `nookcut models install` downloads (from [Hugging Face](https://huggingface.co/ggerganov/whisper.cpp)) | MIT |
+| [zimg](https://github.com/sekrit-twc/zimg) (FFmpeg's `zscale` filter) | HDR to SDR tone mapping on the CPU | WTFPL |
+| [x265](https://www.videolan.org/developers/x265.html) (through FFmpeg) | 10-bit HDR encoding on the CPU (`hdr: keep`) | GPL 2+ |
 | [libass](https://github.com/libass/libass) (FFmpeg's `ass` filter) | Word-by-word captions with the highlighted word | ISC |
 | [FreeType](https://freetype.org/) (FFmpeg's `drawtext` filter, libass) | Drawing caption text | FreeType License or GPL 2 |
 | [HarfBuzz](https://github.com/harfbuzz/harfbuzz) and [FriBidi](https://github.com/fribidi/fribidi) (through libass) | Text shaping and right-to-left scripts in captions | Old MIT / LGPL 2.1+ |
 
-Hardware encoding goes through FFmpeg's support for NVIDIA NVENC, AMD AMF, Intel Quick Sync, VA-API
+GPU tone mapping on Apple silicon uses VideoToolbox through FFmpeg's `scale_vt` filter. Hardware encoding goes through FFmpeg's support for NVIDIA NVENC, AMD AMF, Intel Quick Sync, VA-API
 and Apple VideoToolbox. Those are provided by your GPU vendor's drivers and the operating system.
 
 ## MCP server (optional `mcp` extra)

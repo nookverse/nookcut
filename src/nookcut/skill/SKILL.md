@@ -47,6 +47,7 @@ download they run themselves; after that it works offline), and carry on without
 | key_moments | timestamps they already know ("win at 10:42") | none |
 | subtitles | word-by-word captions of what is said: auto, on, off | auto (on when a speech model is installed) |
 | speech_language | the spoken language, if not English and detection gets it wrong | auto |
+| hdr | only for HDR recordings: sdr (converted, plays right everywhere) or keep (HDR10/HLG) | sdr; keep only if the user asks for HDR |
 | online | may you research trends on the web? (ask only if you have a search tool) | no |
 
 Ask about going online **once per project** and only if you can search. If the user says no, or
@@ -154,6 +155,9 @@ and wait. Keep "Details (for bug reports)" out of the conversation unless the us
 - If something fails, report the exact error and what you will try next; never claim success
   without a rendered file.
 - If the original audio is silent, say so and suggest checking their capture settings.
+- HDR recordings (the analysis `hdr` line) are converted to normal colour by default. Offer
+  `hdr: keep` only if the user wants HDR; say that YouTube shows it as HDR while other apps may
+  convert it themselves.
 - Speech captions show what the transcript heard; mention that the user should skim them, since
   names and slang are the usual mistakes. `export_resolve` also writes `captions.srt`, which they
   can upload to YouTube or TikTok as subtitles.

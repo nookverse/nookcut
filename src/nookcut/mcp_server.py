@@ -207,6 +207,9 @@ def check_environment() -> dict:
     """Step 0. Check ffmpeg, filters, encoders and a caption font. If ok is false, show the user
     `missing` and the `install` command and wait. Nothing needs the internet."""
     env = check()
+    if env["ok"]:
+        from .preflight import hdr_status
+        env["hdr"] = hdr_status()  # what happens to HDR recordings here
     env["offline_ready"] = env["ok"]
     env["online_optional"] = ["trend research by your agent's own web search, only if the user allows it"]
     env["next"] = ("create_project, or auto_edit for the whole video in one call" if env["ok"]
@@ -215,7 +218,8 @@ def check_environment() -> dict:
 
 
 def _brief(source, title, video_type, game, orientation, max_duration, region, language, music, music_file,
-           source_audio, platforms, key_moments, online, subtitles="auto", speech_language="auto") -> Brief:
+           source_audio, platforms, key_moments, online, subtitles="auto", speech_language="auto",
+           hdr="sdr") -> Brief:
     if not video_type:
         video_type = "gameplay" if game else "generic"
     return Brief(title=title, source=_path(source, must_exist=True), video_type=video_type, game=game,
@@ -223,7 +227,7 @@ def _brief(source, title, video_type, game, orientation, max_duration, region, l
                  music=music, music_file=_path(music_file, must_exist=bool(music_file)), source_audio=source_audio,
                  platforms=platforms or ["youtube_shorts", "tiktok", "instagram_reels"],
                  key_moments=key_moments or [], online=online, subtitles=subtitles,
-                 speech_language=speech_language or "auto")
+                 speech_language=speech_language or "auto", hdr=hdr or "sdr")
 
 
 @_tool(annotations=WRITES)
@@ -231,16 +235,19 @@ def create_project(project_dir: str, source: str, title: str, video_type: str = 
                    orientation: str = "vertical", max_duration: float | str = 60, region: str = "",
                    language: str = "en", music: str = "ai", music_file: str = "", source_audio: str = "duck",
                    platforms: list[str] | str | None = None, key_moments: list[dict] | None = None,
-                   online: bool = False, subtitles: str = "auto", speech_language: str = "auto") -> dict:
+                   online: bool = False, subtitles: str = "auto", speech_language: str = "auto",
+                   hdr: str = "sdr") -> dict:
     """Step 1. Save the brief into project_dir. video_type: gameplay|talking|sports|tutorial|generic
     (empty = gameplay if game is set). orientation: vertical|square|wide. music: ai|none|file.
     source_audio: keep|duck|mute. platforms: youtube_shorts, tiktok, instagram_reels, facebook_reels,
     youtube, x. key_moments: [{"t": seconds, "label": "..."}]. online: true only if the user allowed
     web research. subtitles: auto|on|off word-by-word captions of what is said (auto = when a speech
-    model is installed). speech_language: auto or a code like en, es, hi. Relay any warnings."""
+    model is installed). speech_language: auto or a code like en, es, hi. hdr (HDR sources only):
+    sdr = convert to normal colour, plays right everywhere (default); keep = HDR10/HLG HEVC output,
+    only when the user asks for HDR. Relay any warnings."""
     _ready()
     b = _brief(source, title, video_type, game, orientation, max_duration, region, language, music, music_file,
-               source_audio, platforms, key_moments, online, subtitles, speech_language)
+               source_audio, platforms, key_moments, online, subtitles, speech_language, hdr)
     out = pl.new_project(_path(project_dir), b)
     out["next"] = "analyze_video (wait=false, then poll job_status)"
     return out
@@ -251,15 +258,17 @@ def auto_edit(source: str, title: str, project_dir: str = "", video_type: str = 
               orientation: str = "vertical", max_duration: float | str = 60, region: str = "",
               language: str = "en", music: str = "ai", source_audio: str = "duck",
               platforms: list[str] | str | None = None, key_moments: list[dict] | None = None,
-              file_name: str = "", subtitles: str = "auto", template: str = "", wait: bool = True) -> dict:
+              file_name: str = "", subtitles: str = "auto", template: str = "", hdr: str = "sdr",
+              wait: bool = True) -> dict:
     """Make the finished short in ONE call, offline: analyze, plan, captions, original music,
     render, DaVinci Resolve files and publish kit. Only source and title are needed. Best path for
     small or local models. Speech is captioned word by word when a speech model is installed
     (subtitles: auto|on|off). template: empty = auto, or "tighten" to keep the whole recording and
-    cut out its pauses (jump cuts). Takes a few minutes; wait=false returns a job_id for job_status."""
+    cut out its pauses (jump cuts). HDR recordings are converted to normal colour; hdr="keep" keeps
+    HDR10/HLG instead. Takes a few minutes; wait=false returns a job_id for job_status."""
     _ready()
     b = _brief(source, title, video_type, game, orientation, max_duration, region, language, music, "",
-               source_audio, platforms, key_moments, False, subtitles)
+               source_audio, platforms, key_moments, False, subtitles, hdr=hdr)
     project = _path(project_dir) or os.path.join(os.path.dirname(b.source),
                                                   pl.slug(title).lower() + "-nookcut")
 

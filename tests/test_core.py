@@ -432,6 +432,84 @@ class Render(unittest.TestCase):
         self.assertEqual(used[1:], [None, None, None])  # every segment redone on the CPU, none mixed
 
 
+PQ_STREAM = {"color_transfer": "smpte2084", "color_primaries": "bt2020", "color_space": "bt2020nc",
+             "pix_fmt": "yuv420p10le"}
+PQ_FRAME = {"side_data_list": [
+    {"side_data_type": "Mastering display metadata", "red_x": "34000/50000", "red_y": "16000/50000",
+     "green_x": "13250/50000", "green_y": "34500/50000", "blue_x": "7500/50000", "blue_y": "3000/50000",
+     "white_point_x": "15635/50000", "white_point_y": "16450/50000", "min_luminance": "50/10000",
+     "max_luminance": "10000000/10000"},
+    {"side_data_type": "Content light level metadata", "max_content": 1000, "max_average": 400}]}
+
+
+class Hdr(unittest.TestCase):
+    def test_detects_hdr_and_reads_metadata(self):
+        from nookcut.color import hdr_from_probe, x265_params
+        self.assertIsNone(hdr_from_probe({"color_transfer": "bt709"}))
+        self.assertEqual(hdr_from_probe({"color_transfer": "arib-std-b67"})["transfer"], "hlg")
+        h = hdr_from_probe(PQ_STREAM, PQ_FRAME)
+        self.assertEqual((h["transfer"], h["bits"]), ("pq", 10))
+        self.assertEqual(h["master_display"], "G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,50)")
+        self.assertEqual(h["max_cll"], "1000,400")
+        self.assertIn("master-display=G(13250", x265_params(h))
+
+    def test_captions_sit_at_paper_white_in_hdr(self):
+        from nookcut.color import caption_color
+        self.assertEqual(caption_color("0xFFD400", None), "0xFFD400")      # SDR: unchanged
+        self.assertEqual(caption_color("white", {"transfer": "pq"}), "0x949494")   # 203 nits in PQ
+        self.assertEqual(caption_color("white", {"transfer": "hlg"}), "0xBFBFBF")  # 75% HLG
+        r, g, b = (int(caption_color("0xFFD400", {"transfer": "pq"})[i:i + 2], 16) for i in (2, 4, 6))
+        self.assertTrue(r > g > b)                                                  # still yellow
+
+    def test_color_plan(self):
+        from unittest import mock
+        from nookcut import render as r
+        from nookcut.errors import EnvironmentNotReady
+        hdr = {"transfer": "pq", "trc": "smpte2084"}
+        sdr = r.color_plan({})["pre"]
+        self.assertIn("out_range=tv", sdr)                     # SDR: limited range...
+        self.assertNotIn("color_matrix", sdr)                  # ...without re-reading untagged colours as BT.601
+        with mock.patch("nookcut.color.pick_tonemap", return_value="videotoolbox"):
+            plan = r.color_plan({"source_hdr": hdr, "hdr": "sdr"})
+            self.assertIn("scale_vt", plan["pre"])
+            self.assertIn("-init_hw_device", plan["args"])
+            self.assertIsNone(plan["hdr"])
+            self.assertIn("scale_vt", r.color_plan({"source_hdr": hdr, "hdr": "keep"}, sdr_only=True)["pre"])
+        keep = r.color_plan({"source_hdr": hdr, "hdr": "keep"})
+        self.assertEqual(keep["hdr"], hdr)
+        self.assertIn("yuv420p10le", keep["pre"])
+        with mock.patch("nookcut.color.pick_tonemap", return_value=None), self.assertRaises(EnvironmentNotReady):
+            r.color_plan({"source_hdr": hdr, "hdr": "sdr"})
+
+    def test_hdr_segment_is_10bit_with_sound_apart(self):
+        import tempfile
+        from unittest import mock
+        from nookcut import render as r
+        from nookcut.edit import seg
+        hdr = {"transfer": "pq", "trc": "smpte2084"}
+        edit = {"source": "in.webm", "orientation": "vertical", "width": 1080, "height": 1920, "source_audio": "duck",
+                "source_hdr": hdr, "hdr": "keep"}
+        s = seg(10, 12, "highlight", top="BIG|MOMENT")
+        cmds = []
+        with tempfile.TemporaryDirectory() as work, mock.patch.object(r, "run", lambda c, *a, **k: cmds.append(c)):
+            out = r._segment(edit, 0, s, work, "/x/Impact.ttf", None, 1920, 1080, encoder="videotoolbox",
+                             look=r.color_plan(edit))
+        video, sound, mux = cmds
+        graph = video[video.index("-filter_complex") + 1]
+        self.assertIn("overlay=0:470:format=yuv420p10", graph)
+        self.assertIn("fontcolor=0x949494", graph)
+        self.assertNotIn("[0:a", graph)                       # GPU encoders lose HDR metadata next to audio
+        self.assertEqual(video[video.index("-c:v") + 1], "hevc_videotoolbox")
+        self.assertEqual(video[video.index("-color_trc") + 1], "smpte2084")
+        self.assertEqual(sound[-1], out[:-4] + ".wav")
+        self.assertEqual((video[-1], mux[-1]), (out[:-4] + "_v.mov", out))  # sound muxed back per segment
+
+    def test_brief_hdr(self):
+        self.assertEqual(Brief(title="t", source="x").hdr, "sdr")
+        self.assertEqual(Brief(title="t", source="x", hdr="HDR10").hdr, "keep")
+        self.assertEqual(Brief(title="t", source="x", hdr=True).hdr, "keep")
+
+
 class Tasks(unittest.TestCase):
     def test_ffmpeg_errors_are_readable(self):
         from nookcut.errors import explain_ffmpeg

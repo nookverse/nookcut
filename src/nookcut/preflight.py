@@ -28,6 +28,24 @@ HW_ENCODERS = {
 }
 SOFTWARE_ENCODER = {"label": "CPU (libx264)", "codec": "libx264", "pre": [], "fmt": "format=yuv420p",
                     "args": ["-preset", "fast", "-crf", "17"]}
+# HDR output (`hdr: keep`): 10-bit HEVC Main10, the codec the platforms take HDR10/HLG in. H.264 can't
+# carry it on these GPUs. Each one is test-encoded with a 10-bit clip before it's used.
+HDR_ENCODERS = {
+    "videotoolbox": {"label": "Apple VideoToolbox (HEVC 10-bit)", "codec": "hevc_videotoolbox", "pre": [],
+                     "fmt": "format=p010le", "args": ["-profile:v", "main10", "-q:v", "65", "-tag:v", "hvc1"]},
+    "nvenc": {"label": "NVIDIA NVENC (HEVC 10-bit)", "codec": "hevc_nvenc", "pre": [], "fmt": "format=p010le",
+              "args": ["-profile:v", "main10", "-preset", "p5", "-tune", "hq", "-rc", "vbr", "-cq", "19", "-b:v", "0",
+                       "-tag:v", "hvc1"]},
+    "amf": {"label": "AMD AMF (HEVC 10-bit)", "codec": "hevc_amf", "pre": [], "fmt": "format=p010le",
+            "args": ["-profile:v", "main10", "-quality", "quality", "-rc", "cqp", "-qp_i", "18", "-qp_p", "20",
+                     "-tag:v", "hvc1"]},
+    "qsv": {"label": "Intel Quick Sync (HEVC 10-bit)", "codec": "hevc_qsv", "pre": [], "fmt": "format=p010le",
+            "args": ["-profile:v", "main10", "-preset", "medium", "-global_quality", "20", "-tag:v", "hvc1"]},
+    "vaapi": {"label": "VA-API (HEVC 10-bit)", "codec": "hevc_vaapi", "pre": ["-vaapi_device", "/dev/dri/renderD128"],
+              "fmt": "format=p010le,hwupload", "args": ["-profile:v", "main10", "-qp", "18", "-tag:v", "hvc1"]},
+}
+SOFTWARE_HDR_ENCODER = {"label": "CPU (libx265 10-bit)", "codec": "libx265", "pre": [], "fmt": "format=yuv420p10le",
+                        "args": ["-preset", "fast", "-crf", "18", "-tag:v", "hvc1"]}
 # hardware decoder that pairs with each encoder; Windows uses d3d11va, which works on every GPU vendor
 _DECODER_FOR = {"videotoolbox": "videotoolbox", "nvenc": "cuda", "qsv": "qsv", "vaapi": "vaapi", "amf": "d3d11va"}
 
@@ -67,17 +85,20 @@ def _out(cmd: list[str]) -> str:
         return ""
 
 
-def encoder_args(name: str | None) -> dict:
-    """Encoder settings for a name from HW_ENCODERS; None (or unknown) means the CPU encoder."""
+def encoder_args(name: str | None, hdr: bool = False) -> dict:
+    """Encoder settings for a name from HW_ENCODERS (HDR_ENCODERS when hdr); None means the CPU."""
+    if hdr:
+        return HDR_ENCODERS.get(name or "", SOFTWARE_HDR_ENCODER)
     return HW_ENCODERS.get(name or "", SOFTWARE_ENCODER)
 
 
 @functools.lru_cache(maxsize=None)
-def _encodes(name: str) -> bool:
+def _encodes(name: str, hdr: bool = False) -> bool:
     """True if this GPU encoder really works here (listed in ffmpeg is not enough: needs the GPU + driver)."""
-    e = HW_ENCODERS[name]
+    e = (HDR_ENCODERS if hdr else HW_ENCODERS)[name]
+    src = "color=c=gray:s=1280x720:r=60:d=0.25" + (",format=yuv420p10le" if hdr else "")
     cmd = (["ffmpeg", "-v", "error", "-nostdin"] + e["pre"] +
-           ["-f", "lavfi", "-i", "color=c=gray:s=1280x720:r=60:d=0.25", "-vf", e["fmt"],
+           ["-f", "lavfi", "-i", src, "-vf", e["fmt"],
             "-c:v", e["codec"], *e["args"], "-f", "null", "-"])
     try:
         return subprocess.run(cmd, capture_output=True, timeout=30).returncode == 0
@@ -93,6 +114,32 @@ def pick_encoder(encoders_listing: str) -> str | None:
     names = [want] if want in HW_ENCODERS else list(HW_ENCODERS)
     return next((n for n in names if re.search(rf"\s{HW_ENCODERS[n]['codec']}\s", encoders_listing)
                  and _encodes(n)), None)
+
+
+@functools.lru_cache(maxsize=None)
+def pick_hdr_encoder() -> str | None:
+    """First GPU encoder that really writes 10-bit HEVC here, or None for the CPU (libx265).
+    NOOKCUT_ENCODER=cpu|<name> applies here too."""
+    want = os.getenv("NOOKCUT_ENCODER", "auto").strip().lower()
+    if want in ("cpu", "software", "libx264", "libx265"):
+        return None
+    listing = _out(["ffmpeg", "-hide_banner", "-encoders"])
+    names = [want] if want in HDR_ENCODERS else list(HDR_ENCODERS)
+    return next((n for n in names if re.search(rf"\s{HDR_ENCODERS[n]['codec']}\s", listing)
+                 and _encodes(n, True)), None)
+
+
+def hdr_status() -> dict:
+    """What happens to HDR sources here: the tone map used for SDR output, and the HDR encoder."""
+    from .color import pick_tonemap
+    tm = pick_tonemap()
+    enc = pick_hdr_encoder()
+    x265 = re.search(r"\slibx265\s", _out(["ffmpeg", "-hide_banner", "-encoders"])) is not None
+    out = {"to_sdr": {"videotoolbox": "Apple GPU", "cpu": "CPU (zscale)"}.get(tm, "not possible"),
+           "keep_hdr": encoder_args(enc, True)["label"] if enc or x265 else "not possible"}
+    if not tm:
+        out["how"] = "HDR videos need ffmpeg's zscale filter (libzimg) to convert. " + install_hint()
+    return out
 
 
 def pick_decoder(hwaccels_listing: str, encoder: str | None, system: str | None = None) -> str | None:
