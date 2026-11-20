@@ -27,6 +27,15 @@ All notable changes to this project are documented here. The format follows
 - Scene cuts: ffmpeg's `scdet` runs on a 10 fps copy in the same decode as the scan (cut times to
   0.1 s, no second decode). Cuts no longer count as action, and segment edges move onto a nearby cut
   so no segment opens or closes with a flash of another shot. The analysis reports `scene_cuts`.
+- Voiceover: a `vo` line per segment, spoken on your computer (macOS `say`; espeak-ng and
+  Windows' voice untested) or by your own program (`NOOKCUT_TTS_COMMAND`, no shell, server-side only).
+  Lines are placed in output time, sped up at most 1.25x when they don't fit and reported if they
+  still don't; the bed ducks about 12 dB under the voice; spoken words are captioned; cached per
+  line. `--voiceover captions` reads the hook and end captions aloud. `list_voices` / `nookcut voices`.
+- `nookcut config kokoro`: Kokoro as a natural offline voice, through a bundled adapter your Kokoro
+  Python runs (NookCut gains no dependency). Lines get the video's language (`{language}`).
+- A settings file, `~/.config/nookcut/config.env` (`nookcut config show/set/unset`), read by the CLI
+  and the MCP server, so the shared background server gets settings like `NOOKCUT_TTS_COMMAND`.
 - B-roll from your own folder (`broll_dir`, `--broll-dir`): `cover`, `inset` (picture-in-picture,
   either picture full-size) and `split` layouts over a segment's picture, for a time window inside
   it. Placed automatically where the speaker names a clip (by file name), capped at a third of the

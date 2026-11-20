@@ -19,6 +19,8 @@ software or models below: it runs the tools you install, or downloads a model on
 | [zimg](https://github.com/sekrit-twc/zimg) (FFmpeg's `zscale` filter) | HDR to SDR tone mapping on the CPU | WTFPL |
 | [x265](https://www.videolan.org/developers/x265.html) (through FFmpeg) | 10-bit HDR encoding on the CPU (`hdr: keep`) | GPL 2+ |
 | [libass](https://github.com/libass/libass) (FFmpeg's `ass` filter) | Word-by-word captions with the highlighted word | ISC |
+| [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) and [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx) (optional, installed by you) | A natural voice for voiceover, through `nookcut config kokoro` | Apache 2.0 / MIT |
+| [espeak-ng](https://github.com/espeak-ng/espeak-ng) (optional, Linux) | The computer's own voice for voiceover, if installed | GPL 3 |
 | [FreeType](https://freetype.org/) (FFmpeg's `drawtext` filter, libass) | Drawing caption text | FreeType License or GPL 2 |
 | [HarfBuzz](https://github.com/harfbuzz/harfbuzz) and [FriBidi](https://github.com/fribidi/fribidi) (through libass) | Text shaping and right-to-left scripts in captions | Old MIT / LGPL 2.1+ |
 

@@ -30,7 +30,8 @@ async def exercise(session: ClientSession, clip: str | None, project: str | None
     print(f"  {len(tools)} tools, prompts={prompts}, resources={resources}")
     skill = await session.read_resource("nookcut://skill")
     assert "NookCut editor" in skill.contents[0].text
-    assert {"auto_edit", "suggest_copy", "get_transcript", "get_frames", "verify_video", "list_broll"} <= set(tools), tools
+    assert {"auto_edit", "suggest_copy", "get_transcript", "get_frames", "verify_video", "list_broll",
+            "list_voices"} <= set(tools), tools
     assert not [t for t in tools if t.startswith("_")], tools
     prompt = await session.get_prompt("nookcut-editor", {"source": "x.mov", "title": "Test"})
     assert "Make a short from this brief" in prompt.messages[0].content.text

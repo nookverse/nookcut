@@ -254,6 +254,8 @@ def _segment(edit, i, s, work, font, hwaccel, src_w, src_h, task=None, on_progre
     if layer:
         graph += ";" + layer
     speech = subs.local_words(s) if edit.get("subtitles") else []
+    if not speech and edit.get("vo_captions") and s.get("_vo_words"):
+        speech = s["_vo_words"]   # the voiceover's own words, timed to the spoken line
     graph += f";[{'cv' if layer else 'base'}]" + \
         ",".join(_text(work, i, s, dur, L, font, W, H, speech, hdr) + [enc["fmt"]]) + "[v]"
     out = os.path.join(work, f"seg{i:03d}.mov")
@@ -296,9 +298,44 @@ def _workers() -> int:
         return min(4, max(1, (os.cpu_count() or 2) // 2))
 
 
+def _mix_graph(cmd: list, edit: dict, has_src_audio: bool, music_wav: str | None, voice_wav: str | None) -> str:
+    """The final audio: the recording's sound and the music (the bed), ducked under the voiceover when
+    there is one, then brought to the platforms' loudness (-14 LUFS) with true peaks under -2 dBTP
+    (AAC adds about half a dB, so the finished file stays under -1 dBTP). Adds its inputs to cmd."""
+    master = f"loudnorm=I={TARGET_LUFS}:TP=-2:LRA=11,aresample=48000"
+    n, parts, bed = 1, [], None
+    if music_wav:
+        cmd += ["-i", music_wav]
+        music, n = f"{n}:a", n + 1
+    if voice_wav:
+        cmd += ["-i", voice_wav]
+        vo = f"{n}:a"
+    if has_src_audio and music_wav:
+        game_vol = 1.0 if edit["source_audio"] == "keep" else 0.9
+        mus_vol = 0.35 if edit["source_audio"] == "keep" else 0.6
+        parts.append(f"[0:a]volume={game_vol}[g];[{music}]volume={mus_vol}[m];"
+                     "[g][m]amix=inputs=2:duration=first:normalize=0[bed]")
+        bed = "bed"
+    elif music_wav:
+        parts.append(f"[{music}]anull[bed]")
+        bed = "bed"
+    elif has_src_audio:
+        parts.append("[0:a]anull[bed]")
+        bed = "bed"
+    if voice_wav and bed:
+        # the bed dips about 12 dB while the voice speaks and comes back after it
+        parts.append(f"[{vo}]asplit[key][v];[bed][key]sidechaincompress=threshold=0.02:ratio=8:attack=15:"
+                     f"release=350:makeup=1[duck];[duck][v]amix=inputs=2:duration=first:normalize=0,{master}[a]")
+    elif voice_wav:
+        parts.append(f"[{vo}]{master}[a]")
+    elif bed:
+        parts.append(f"[bed]{master}[a]")
+    return ";".join(parts)
+
+
 def render(edit: dict, out_path: str, music_wav: str | None, hwaccel: str | None = None,
            workers: int | None = None, only: list[int] | None = None, task: Task | None = None,
-           encoder: str | None = None) -> str:
+           encoder: str | None = None, voice_wav: str | None = None) -> str:
     """encoder: a GPU encoder from preflight.HW_ENCODERS, or None for the CPU (libx264). When the
     source is HDR and the edit keeps HDR, the HDR encoder (preflight.HDR_ENCODERS) is picked here."""
     task = task or Task(track=False)
@@ -378,24 +415,10 @@ def render(edit: dict, out_path: str, music_wav: str | None, hwaccel: str | None
             f.writelines(f"file '{p}'\n" for p in segs)
         cmd = ["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", listing]
         has_src_audio = edit.get("source_audio") != "mute"
-        game, music_in = "0:a", 1
-        if music_wav:
-            cmd += ["-i", music_wav]
-        # every mix ends at the platforms' loudness (-14 LUFS) with true peaks under -2 dBTP; AAC adds
-        # about half a dB of overshoot, so the finished file stays under -1 dBTP
-        master = f"loudnorm=I={TARGET_LUFS}:TP=-2:LRA=11,aresample=48000"
-        if has_src_audio and music_wav:
-            game_vol = 1.0 if edit["source_audio"] == "keep" else 0.9
-            mus_vol = 0.35 if edit["source_audio"] == "keep" else 0.6
-            audio = (f"[{game}]volume={game_vol}[g];[{music_in}:a]volume={mus_vol}[m];"
-                     f"[g][m]amix=inputs=2:duration=first:normalize=0,{master}[a]")
-        elif music_wav:
-            audio = f"[{music_in}:a]{master}[a]"
-        elif has_src_audio:
-            audio = f"[{game}]{master}[a]"
-        else:
-            audio = ""
-        cmd += ["-map", "0:v"] + (["-filter_complex", audio, "-map", "[a]"] if audio else [])
+        audio = _mix_graph(cmd, edit, has_src_audio, music_wav, voice_wav)   # adds its inputs first
+        cmd += ["-map", "0:v"]
+        if audio:
+            cmd += ["-filter_complex", audio, "-map", "[a]"]
         cmd += ["-c:v", "copy", *(["-tag:v", "hvc1"] if look["hdr"] else []), *color.color_tags(look["hdr"]),
                 "-c:a", "aac", "-b:a", "320k", "-t", f"{total(edit):.3f}",
                 "-movflags", "+faststart", out_path]

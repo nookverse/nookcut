@@ -732,6 +732,107 @@ class Broll(unittest.TestCase):
             r._segment(hdr, 0, s, work, "/x/Impact.ttf", None, 1920, 1080, look=r.color_plan(hdr))
 
 
+class Voiceover(unittest.TestCase):
+    def test_command_engine_runs_without_a_shell(self):
+        import os
+        from unittest import mock
+        from nookcut import voice
+        cmds = []
+
+        def fake_run(cmd, *a, **k):
+            cmds.append(cmd)
+            if cmd[0] != "ffmpeg":
+                open(cmd[cmd.index("--out") + 1], "wb").close()
+        line = 'He said "stop"; rm -rf ~ && $(reboot)'
+        env = {"NOOKCUT_TTS": "command", "NOOKCUT_TTS_COMMAND": "mytts --file {text_file} --out {out_wav} --voice {voice}"}
+        with mock.patch.dict(os.environ, env), mock.patch.object(voice, "run", fake_run):
+            voice.speak(line, "am_michael", 1.1, "/tmp/never-written.wav")
+        tts = cmds[0]
+        self.assertEqual(tts[0], "mytts")                     # the server's program, as a list (no shell)
+        self.assertNotIn(line, " ".join(tts))                 # the text only ever goes through a file
+        self.assertEqual(tts[tts.index("--voice") + 1], "am_michael")
+
+    def test_settings_file(self):
+        import os, stat, tempfile
+        from unittest import mock
+        from nookcut import config
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(config, "PATH", os.path.join(d, "config.env")):
+            config.write("NOOKCUT_TTS", "command")
+            config.write("NOOKCUT_TTS_COMMAND", "py say.py --out {out_wav}")
+            with open(config.PATH, "a") as f:
+                f.write("PATH=/evil\n# NOOKCUT_FONT=commented\n")
+            self.assertEqual(config.read(), {"NOOKCUT_TTS": "command", "NOOKCUT_TTS_COMMAND": "py say.py --out {out_wav}"})
+            self.assertEqual(stat.S_IMODE(os.stat(config.PATH).st_mode), 0o600)
+            with mock.patch.dict(os.environ, {"NOOKCUT_TTS": "off"}, clear=False):
+                config.load()
+                self.assertEqual(os.environ["NOOKCUT_TTS"], "off")          # the environment wins
+            os.environ.pop("NOOKCUT_TTS_COMMAND", None)
+            with self.assertRaises(ValueError):
+                config.write("PATH", "/evil")
+
+    def test_kokoro_command(self):
+        import shlex
+        from nookcut import voice
+        cmd = shlex.split(voice.kokoro_command("/my py/python", "/models dir"))
+        self.assertEqual(cmd[0], "/my py/python")                            # paths with spaces stay one argument
+        self.assertTrue(cmd[1].endswith("adapters/kokoro_say.py"))
+        self.assertEqual(cmd[cmd.index("--models") + 1], "/models dir")
+        self.assertIn("{language}", cmd)
+
+    def test_voice_choice(self):
+        from unittest import mock
+        from nookcut import voice
+        fake = [{"name": "Bad News", "language": "en_US"}, {"name": "Eddy (English (US))", "language": "en_US"},
+                {"name": "Daniel (English (UK))", "language": "en_GB"}, {"name": "Paulina", "language": "es_MX"}]
+        with mock.patch.object(voice, "voices", return_value=fake), mock.patch.object(voice, "engine", return_value="system"):
+            self.assertEqual(voice.pick_voice("en"), "Daniel (English (UK))")    # no novelty or robotic voices
+            self.assertEqual(voice.pick_voice("es"), "Paulina")
+            self.assertIsNone(voice.pick_voice("bn"))                            # none: skipped with a note
+            self.assertEqual(voice.pick_voice("en", "daniel"), "Daniel (English (UK))")
+
+    def test_captions_read_aloud(self):
+        from nookcut.pipeline import spoken
+        self.assertEqual(spoken("RATE THIS|1-10"), "Rate this 1 to 10.")
+        self.assertEqual(spoken("ATTEMPT #18"), "Attempt number 18.")
+        self.assertEqual(spoken("WHICH PART WAS BEST?"), "Which part was best?")
+
+    def test_mix_ducks_the_bed_under_the_voice(self):
+        from nookcut.render import _mix_graph
+        cmd = []
+        g = _mix_graph(cmd, {"source_audio": "duck"}, True, "music.wav", "voice.wav")
+        self.assertEqual(cmd, ["-i", "music.wav", "-i", "voice.wav"])
+        self.assertIn("[2:a]asplit[key][v];[bed][key]sidechaincompress", g)
+        self.assertTrue(g.endswith("loudnorm=I=-14:TP=-2:LRA=11,aresample=48000[a]"))
+        cmd = []
+        self.assertEqual(_mix_graph(cmd, {"source_audio": "mute"}, False, None, "voice.wav"),
+                         "[1:a]loudnorm=I=-14:TP=-2:LRA=11,aresample=48000[a]")   # voice only
+        self.assertNotIn("sidechain", _mix_graph([], {"source_audio": "duck"}, True, "m.wav", None))
+
+    def test_lines_are_placed_and_long_ones_reported(self):
+        import tempfile, os
+        from unittest import mock
+        from nookcut import pipeline as pl
+        from nookcut.edit import seg
+        from nookcut.tasks import Task
+        e = {"language": "en", "voice": {"name": "", "speed": 1.0}, "template": "highlights",
+             "segments": [seg(0, 3, "hook"), seg(10, 14, "highlight"), seg(20, 22, "end")]}
+        e["segments"][0]["vo"] = "Short line."
+        e["segments"][2]["vo"] = "A very long line that cannot possibly fit into two seconds of video at all."
+        lengths = {"Short line.": 1.0}
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(pl.vc, "pick_voice", return_value="Samantha"), \
+                mock.patch.object(pl.vc, "cached", side_effect=lambda text, *a, **k: text), \
+                mock.patch.object(pl.qc, "_probe", side_effect=lambda f, t: {"format": {"duration": lengths.get(f, 5.0)}}), \
+                mock.patch.object(pl, "run"):
+            out = pl._voice(d, e, Task(track=False))
+        first, last = out["lines"]
+        self.assertEqual((first["start"], first["tempo"]), (0.1, 1.0))
+        self.assertEqual(last["tempo"], 1.25)                        # sped up as far as allowed...
+        self.assertIn("runs", out["warnings"][0])                    # ...then reported, never cut
+        pl._vo_words(e, out["lines"])
+        self.assertEqual([w[2] for w in e["segments"][0]["_vo_words"]], ["Short", "line."])
+
+
 class FrameRate(unittest.TestCase):
     def test_output_rate_follows_the_source_family(self):
         from nookcut.edit import fps_value, output_fps

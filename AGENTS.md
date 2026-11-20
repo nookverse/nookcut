@@ -21,7 +21,9 @@ with its own search only when the user allows it; NookCut never does network cal
   (agent web research) is opt-in per project (`brief.online`, default off). Optional local models
   (Whisper today, Piper planned) may be fetched only by a user-run `nookcut models install`, never
   automatically. Python standard library + ffmpeg only at runtime (`mcp` is the one
-  optional dependency, for the server).
+  optional dependency, for the server). Voiceover may also use the operating system's own voice
+  tool (macOS `say`, espeak-ng, Windows System.Speech) or a program the user names in
+  NOOKCUT_TTS_COMMAND (server-side only, run without a shell); NookCut never installs a voice engine.
 - **Licensed music only.** AI music is synthesized from scratch in `music.py` (no samples), or the
   user brings their own file. Never download or suggest copyrighted tracks.
 - **Never post or upload** on the user's behalf. Hand over files and a publish kit.
@@ -52,6 +54,9 @@ src/nookcut/
   edit.py        the edit.json contract (segments, kinds, validation)
   music.py       procedural score (taiko | pulse | cinematic), mastered with ffmpeg
   render.py      parallel per-segment render + concat + audio mix; preview contact sheet
+  config.py      ~/.config/nookcut/config.env (NOOKCUT_* settings for the CLI and the shared server)
+  adapters/      programs NookCut runs but never imports (kokoro_say.py, run by the user's Kokoro Python)
+  voice.py       voiceover engines (system voice or the user's command), voice choice, cached lines
   broll.py       the user's B-roll folder: index, safe paths, keyword placement (cover/inset/split)
   qc.py          frame sheets (get_frames) and checks of a finished render (verify_video)
   export.py      CMX3600 EDLs, markers, Resolve Lua builder

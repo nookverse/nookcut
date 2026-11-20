@@ -47,4 +47,4 @@ nookcut-mcp = "nookcut.mcp_server:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-nookcut = ["skill/SKILL.md", "copydata/*.json"]
+nookcut = ["skill/SKILL.md", "copydata/*.json", "adapters/*.py"]

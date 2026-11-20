@@ -38,6 +38,13 @@ tool result also says what to do next.
 **Do I need an agent at all?**
 No. `nookcut make` does everything from the command line.
 
+**Can it add a voiceover?**
+Yes. Your agent writes a line for any segment (`update_edit` with `vo`), or `--voiceover captions`
+reads the hook and end captions aloud. The game sound and music duck under the voice, and the words
+are captioned. The built-in voice is your computer's own (on macOS, `nookcut voices` lists them),
+which sounds synthetic. For a natural voice, install Kokoro (offline, free) and run
+`nookcut config kokoro`; any other text-to-speech program works through `NOOKCUT_TTS_COMMAND`.
+
 **Can it add B-roll?**
 Yes, from your own files: set `broll_dir` to a folder of clips and pictures. With speech captions on,
 NookCut shows a clip where the speaker names it (by file name), for up to 4 seconds. You or your

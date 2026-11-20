@@ -64,6 +64,9 @@ def _brief_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--subtitles", default="auto", help="word-by-word speech captions: auto | on | off")
     p.add_argument("--speech-language", default="auto", help="spoken language, e.g. en or es (auto detects)")
     p.add_argument("--fps", default="auto", help="output frame rate: auto (60, or 59.94/50 to match the source) | 60 | 30")
+    p.add_argument("--voiceover", default="off", help="off | captions (read the hook and end captions aloud)")
+    p.add_argument("--voice", default="", help="voice name (nookcut voices); default: the best for the language")
+    p.add_argument("--voice-speed", type=float, default=1.0)
     p.add_argument("--broll-dir", default="", help="folder of your own clips/pictures to show as B-roll")
     p.add_argument("--hdr", default="sdr", help="HDR sources: sdr (convert, plays everywhere) | keep (HDR10/HLG HEVC)")
 
@@ -74,7 +77,8 @@ def _brief(a) -> Brief:
                  platforms=a.platforms.split(","), orientation=a.orientation, max_duration=a.max_duration,
                  region=a.region, language=a.language, music=a.music, music_file=a.music_file,
                  source_audio=a.source_audio, online=a.online, subtitles=a.subtitles, key_moments=a.key_moments,
-                 speech_language=a.speech_language, hdr=a.hdr, fps=a.fps, broll_dir=a.broll_dir)
+                 speech_language=a.speech_language, hdr=a.hdr, fps=a.fps, broll_dir=a.broll_dir,
+                 voiceover=a.voiceover, voice=a.voice, voice_speed=a.voice_speed)
 
 
 def _fail(e: BaseException, verbose: bool) -> int:
@@ -93,6 +97,8 @@ def _fail(e: BaseException, verbose: bool) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     install_signal_handlers()
+    from .config import load
+    load()
     try:
         return _main(argv)
     except KeyboardInterrupt:
@@ -115,6 +121,37 @@ def _step(fn, name: str, project: str, quiet: bool, *args):
     finally:
         if ui:
             ui.close()
+
+
+def _config(a) -> int:
+    from . import config
+    if a.action == "show":
+        for k, v in config.read().items():
+            print(f"{k}={v}")
+        print(f"(file: {config.PATH})")
+        return 0
+    if a.action in ("set", "unset"):
+        if not a.key or (a.action == "set" and not a.value):
+            raise SystemExit("usage: nookcut config set NOOKCUT_KEY VALUE | nookcut config unset NOOKCUT_KEY")
+        print(config.write(a.key, a.value if a.action == "set" else None))
+        return 0
+    # kokoro: find the Python and models, test-speak a line, then save the command
+    import os
+    from . import voice
+    models = os.path.expanduser(a.models or "~/.local/share/kokoro-tts")
+    python = os.path.expanduser(a.python or os.path.join(models, ".venv", "bin", "python"))
+    if not os.path.isfile(python):
+        raise SystemExit(f"No Python at {python}. Pass --python with the Python that has kokoro-onnx installed.")
+    cmd = voice.kokoro_command(python, models)
+    os.environ["NOOKCUT_TTS"], os.environ["NOOKCUT_TTS_COMMAND"] = "command", cmd
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        print("Testing Kokoro (the first line takes a few seconds)...")
+        voice.speak("NookCut voiceover test.", "", 1.0, os.path.join(d, "t.wav"), language="en")
+    config.write("NOOKCUT_TTS", "command")
+    path = config.write("NOOKCUT_TTS_COMMAND", cmd)
+    print(f"Kokoro works. Saved to {path}.\nRestart the shared server so it uses it: nookcut service restart")
+    return 0
 
 
 def _models(a) -> int:
@@ -161,6 +198,13 @@ def _main(argv: list[str] | None = None) -> int:
     fr = sub.add_parser("frames", help="a sheet of frames from the last render (or --source) to look at")
     fr.add_argument("project"); fr.add_argument("--at", action="append", default=[], help="a time, e.g. 1:30 (repeatable)")
     fr.add_argument("--count", type=int, default=8); fr.add_argument("--source", action="store_true")
+    cf = sub.add_parser("config", help="settings file (~/.config/nookcut/config.env): show, set, unset, kokoro")
+    cf.add_argument("action", choices=("show", "set", "unset", "kokoro"))
+    cf.add_argument("key", nargs="?", default=""); cf.add_argument("value", nargs="?", default="")
+    cf.add_argument("--python", default="", help="kokoro: the Python that has kokoro-onnx")
+    cf.add_argument("--models", default="", help="kokoro: folder with kokoro-v1.0.onnx and voices-v1.0.bin")
+    vs = sub.add_parser("voices", help="voices that can speak voiceover lines")
+    vs.add_argument("--language", default="")
     bl = sub.add_parser("broll", help="list the project's B-roll files")
     bl.add_argument("project")
     vr = sub.add_parser("verify", help="check the last render: size, length, loudness, black/frozen picture")
@@ -210,6 +254,16 @@ def _main(argv: list[str] | None = None) -> int:
         return _models(a)
     if a.cmd == "frames":
         print(pl.frame_sheet(a.project, a.at or None, a.source, a.count)["frames"])
+        return 0
+    if a.cmd == "config":
+        return _config(a)
+    if a.cmd == "voices":
+        from . import voice
+        st = voice.status()
+        print(f"Engine: {st['engine']}" + ("" if st["ready"] else f" (not working: {st.get('how')})"))
+        for v in (voice.command_voices() if voice.engine() == "command" else voice.voices()):
+            if not a.language or v["language"].lower().startswith(a.language.lower()[:2]):
+                print(f"  {v['name']:<32} {v['language']}")
         return 0
     if a.cmd == "broll":
         for f in pl.broll_files(a.project):

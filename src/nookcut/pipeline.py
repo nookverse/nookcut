@@ -30,6 +30,7 @@ from .export import resolve_kit
 from .music import compose
 from . import broll as br
 from . import qc
+from . import voice as vc
 from .publish import write_kit
 from .render import preview, render
 from .story import add_speech, clear_of_cuts, crop_bars, plan
@@ -189,6 +190,10 @@ def make_plan(project: str, template: str | None = None) -> dict:
         add_speech(edit, words, brief)
     clear_of_cuts(edit, result["signals"].get("scenes"))
     crop_bars(edit, result)
+    if brief.voiceover == "captions":   # read the hook and the end card aloud (agents write other lines)
+        for s in edit["segments"]:
+            if s["kind"] in ("hook", "end") and s.get("top") and not s.get("vo"):
+                s["vo"] = spoken(s["top"])
     if brief.broll_dir:
         files = broll_files(project)
         notes = br.auto_place(edit, files) if brief.hdr != "keep" or not edit.get("source_hdr") else []
@@ -206,7 +211,8 @@ def describe(edit: dict) -> dict:
         {"i": i, "kind": s["kind"], "at": st, "dur": round(d, 2), "src": [s["src_in"], s["src_out"]],
          "speed": s["speed"], "top": s["top"], "bottom": s["bottom"],
          **({"speech": " ".join(w[2] for w in s["words"])} if s.get("words") else {}),
-         **({"broll": s["broll"]} if s.get("broll") else {})}
+         **({"broll": s["broll"]} if s.get("broll") else {}),
+         **({"vo": s["vo"]} if s.get("vo") else {})}
         for i, (st, d, s) in enumerate(ed.timeline(edit))], "speech_captions": bool(edit.get("subtitles"))}
     if edit.get("broll_notes"):
         out["broll"] = edit["broll_notes"]
@@ -259,19 +265,120 @@ def make_render(project: str, out_name: str | None = None, task: Task | None = N
         return _render(project, out_name, t)
 
 
+VO_AT = 0.1          # a line starts this long into its segment unless vo_at says otherwise
+VO_TEMPO_MAX = 1.25  # a line that doesn't fit is sped up at most this much, then reported
+
+
+def spoken(caption: str) -> str:
+    """A caption as a line to say: "IT TOOK ME|17 TRIES" -> "It took me 17 tries."."""
+    text = re.sub(r"\s+", " ", caption.replace("|", " ")).strip().lower()
+    text = re.sub(r"(\d+)\s*[-–]\s*(\d+)", r"\1 to \2", text)   # "1-10" is said "one to ten", not "minus"
+    text = text.replace("#", "number ")
+    text = re.sub(r"(^|[.!?]\s+)([a-z])", lambda m: m.group(1) + m.group(2).upper(), text)
+    return text if not text or text[-1] in ".!?" else text + "."
+
+
+def _voice(project: str, edit: dict, t: Task) -> dict | None:
+    """Speak every segment's vo line (cached), place it in output time and write voice.wav plus the
+    timing in .nookcut/voice.json. Lines that run long are sped up a little, then reported."""
+    from .tasks import state_dir
+    out_wav, info = os.path.join(project, "voice.wav"), os.path.join(state_dir(project), "voice.json")
+    lines = [(i, start, dur, s) for i, (start, dur, s) in enumerate(ed.timeline(edit)) if (s.get("vo") or "").strip()]
+    for stale in (out_wav, info):
+        if os.path.exists(stale):
+            os.remove(stale)   # never mix an old voice track after the lines changed
+    if not lines:
+        return None
+    voice = edit.get("voice") or {}
+    name = vc.pick_voice(edit.get("language", "en"), voice.get("name", ""))
+    warnings: list[str] = []
+    if name is None:
+        warnings.append(f"no voice on this computer speaks '{edit.get('language', 'en')}', so the voiceover was "
+                        "left out; install one in the system settings, or set NOOKCUT_TTS_COMMAND")
+        _save_json(info, {"lines": [], "warnings": warnings})
+        return {"path": None, "lines": [], "warnings": warnings}
+    speed = float(voice.get("speed") or 1.0)
+    total_len = ed.total(edit)
+    t.begin("speaking the voiceover", len(lines), note=f"{len(lines)} lines, voice {name or 'your command'}")
+    placed = []
+    for k, (i, start, dur, s) in enumerate(lines):
+        wav = vc.cached(s["vo"].strip(), name or "", speed, os.path.join(state_dir(project), "voice"), t,
+                        edit.get("language", "en"))
+        length = float(qc._probe(wav, t)["format"]["duration"])
+        at = start + float(s.get("vo_at") if s.get("vo_at") is not None else VO_AT)
+        nxt = lines[k + 1] if k + 1 < len(lines) else None
+        until = (nxt[1] + float(nxt[3].get("vo_at") if nxt[3].get("vo_at") is not None else VO_AT) - 0.15) if nxt \
+            else total_len - 0.1
+        room = max(0.3, until - at)
+        tempo = min(VO_TEMPO_MAX, length / room) if length > room else 1.0
+        said = length / tempo
+        if said > room + 0.05:
+            warnings.append(f"the voice line on segment {i + 1} runs {said - room:.1f} s past its slot: shorten it "
+                            "or give it a longer segment")
+        if s.get("words"):
+            warnings.append(f"segment {i + 1}: the voice line plays over the recording's own speech")
+        placed.append({"segment": i, "start": round(at, 3), "length": round(said, 3), "tempo": round(tempo, 3),
+                       "text": s["vo"].strip(), "file": wav})
+        t.set(k + 1)
+    if edit.get("template") == "tighten":
+        warnings.append("a voiceover over a tightened talk competes with the speaker")
+    cmd = ["ffmpeg", "-v", "error", "-y"]
+    graph = []
+    for k, line in enumerate(placed):
+        cmd += ["-i", line["file"]]
+        ms = round(line["start"] * 1000)
+        tempo = f"atempo={line['tempo']}," if line["tempo"] != 1.0 else ""
+        graph.append(f"[{k}:a]{tempo}adelay={ms}:all=1[v{k}]")
+    mix = "".join(f"[v{k}]" for k in range(len(placed)))
+    graph.append(f"{mix}amix=inputs={len(placed)}:normalize=0:duration=longest,apad=whole_dur={total_len:.3f},"
+                 f"atrim=0:{total_len:.3f}[vo]")
+    run(cmd + ["-filter_complex", ";".join(graph), "-map", "[vo]", "-ar", "48000", "-ac", "1", out_wav], t,
+        "building the voice track")
+    result = {"path": out_wav, "voice": name or "your voice program's default for the language",
+              "lines": placed, "warnings": warnings}
+    _save_json(info, result)
+    return result
+
+
+def _save_json(path: str, data: dict) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=1)
+
+
+def _vo_words(edit: dict, placed: list[dict]) -> None:
+    """Caption words for each spoken line, spread over it by length (the text is known exactly)."""
+    starts = {i: st for i, (st, _, _) in enumerate(ed.timeline(edit))}
+    for line in placed:
+        s = edit["segments"][line["segment"]]
+        words = line["text"].split()
+        weights = [len(w) + 1 for w in words]
+        t, out = line["start"] - starts[line["segment"]], []
+        for w, wt in zip(words, weights):
+            d = line["length"] * wt / sum(weights)
+            out.append([round(t, 3), round(t + d * 0.92, 3), w])
+            t += d
+        dur = ed.seg_duration(s)
+        s["_vo_words"] = [[a, min(b, dur), w] for a, b, w in out if a < dur]
+
+
 def _render(project: str, out_name: str | None, t: Task) -> str:
     p = paths(project)
     edit = ed.load(p["edit"])
     music = p["music"] if edit["music"] != "none" and os.path.exists(p["music"]) else None
     need_music = edit["music"] != "none" and not music
-    t.plan(*([("making music", 1)] if need_music else []), ("preparing", 0.3),
-           ("rendering segments", 10), ("mixing audio", 0.7))
+    has_vo = any((s.get("vo") or "").strip() for s in edit["segments"])
+    t.plan(*([("making music", 1)] if need_music else []), *([("speaking the voiceover", 0.5)] if has_vo else []),
+           ("preparing", 0.3), ("rendering segments", 10), ("mixing audio", 0.7))
     if need_music:
         music = _music(project, None, t)
+    vo = _voice(project, edit, t)
+    if vo and vo["lines"]:
+        _vo_words(edit, vo["lines"])
     out = os.path.join(project, (out_name or slug(edit.get("title", "nookcut"))) + ".mp4")
     env = check()
     return render(edit, out, music, hwaccel=env.get("hardware_decode"), encoder=env.get("hardware_encode"),
-                  task=t)
+                  task=t, voice_wav=vo["path"] if vo else None)
 
 
 def broll_files(project: str, task: Task | None = None) -> list[dict]:
@@ -298,6 +405,15 @@ def verify_render(project: str, video: str | None = None, task: Task | None = No
     video = video or latest_render(project)
     out = qc.verify(ed.load(p["edit"]), video, os.path.join(project, "check.jpg"), task)
     out["video"] = os.path.abspath(video)
+    from .tasks import state_dir
+    vo_info = os.path.join(state_dir(project), "voice.json")
+    if os.path.exists(vo_info):
+        with open(vo_info, encoding="utf-8") as f:
+            vo = json.load(f)
+        out["issues"] += vo.get("warnings", [])
+        out["ok"] = not out["issues"]
+        if vo.get("lines"):
+            out["facts"]["voiceover"] = f"{len(vo['lines'])} lines, voice {vo.get('voice')}"
     return out
 
 

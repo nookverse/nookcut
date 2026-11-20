@@ -211,7 +211,9 @@ def check_environment() -> dict:
     env = check()
     if env["ok"]:
         from .preflight import hdr_status
+        from .voice import status as voice_status
         env["hdr"] = hdr_status()  # what happens to HDR recordings here
+        env["voiceover"] = voice_status()  # optional: the voice that speaks voiceover lines
     env["offline_ready"] = env["ok"]
     env["online_optional"] = ["trend research by your agent's own web search, only if the user allows it"]
     env["next"] = ("create_project, or auto_edit for the whole video in one call" if env["ok"]
@@ -221,7 +223,7 @@ def check_environment() -> dict:
 
 def _brief(source, title, video_type, game, orientation, max_duration, region, language, music, music_file,
            source_audio, platforms, key_moments, online, subtitles="auto", speech_language="auto",
-           hdr="sdr", fps="auto", broll_dir="") -> Brief:
+           hdr="sdr", fps="auto", broll_dir="", voiceover="off", voice="", voice_speed=1.0) -> Brief:
     if not video_type:
         video_type = "gameplay" if game else "generic"
     return Brief(title=title, source=_path(source, must_exist=True), video_type=video_type, game=game,
@@ -230,7 +232,8 @@ def _brief(source, title, video_type, game, orientation, max_duration, region, l
                  platforms=platforms or ["youtube_shorts", "tiktok", "instagram_reels"],
                  key_moments=key_moments or [], online=online, subtitles=subtitles,
                  speech_language=speech_language or "auto", hdr=hdr or "sdr", fps=fps or "auto",
-                 broll_dir=_path(broll_dir, must_exist=bool(broll_dir)))
+                 broll_dir=_path(broll_dir, must_exist=bool(broll_dir)), voiceover=voiceover or "off",
+                 voice=voice or "", voice_speed=voice_speed or 1.0)
 
 
 @_tool(annotations=WRITES)
@@ -239,7 +242,8 @@ def create_project(project_dir: str, source: str, title: str, video_type: str = 
                    language: str = "en", music: str = "ai", music_file: str = "", source_audio: str = "duck",
                    platforms: list[str] | str | None = None, key_moments: list[dict] | None = None,
                    online: bool = False, subtitles: str = "auto", speech_language: str = "auto",
-                   hdr: str = "sdr", fps: str = "auto", broll_dir: str = "") -> dict:
+                   hdr: str = "sdr", fps: str = "auto", broll_dir: str = "", voiceover: str = "off",
+                   voice: str = "", voice_speed: float = 1.0) -> dict:
     """Step 1. Save the brief into project_dir. video_type: gameplay|talking|sports|tutorial|generic
     (empty = gameplay if game is set). orientation: vertical|square|wide. music: ai|none|file.
     source_audio: keep|duck|mute. platforms: youtube_shorts, tiktok, instagram_reels, facebook_reels,
@@ -249,10 +253,13 @@ def create_project(project_dir: str, source: str, title: str, video_type: str = 
     sdr = convert to normal colour, plays right everywhere (default); keep = HDR10/HLG HEVC output,
     only when the user asks for HDR. fps: auto (60, matching 59.94/50 sources) | 60 | 30; high
     frame rate sources (120 fps) give real-frame slow motion either way. broll_dir: a folder of the
-    user's own clips/pictures to show as B-roll (never downloaded). Relay any warnings."""
+    user's own clips/pictures to show as B-roll (never downloaded). voiceover: off | captions (the
+    hook and end captions read aloud; write other lines yourself with update_edit "vo"). voice: a
+    name from list_voices (empty = the best for the language); voice_speed 0.7-1.5. Relay any warnings."""
     _ready()
     b = _brief(source, title, video_type, game, orientation, max_duration, region, language, music, music_file,
-               source_audio, platforms, key_moments, online, subtitles, speech_language, hdr, fps, broll_dir)
+               source_audio, platforms, key_moments, online, subtitles, speech_language, hdr, fps, broll_dir,
+               voiceover, voice, voice_speed)
     out = pl.new_project(_path(project_dir), b)
     out["next"] = "analyze_video (wait=false, then poll job_status)"
     return out
@@ -264,7 +271,7 @@ def auto_edit(source: str, title: str, project_dir: str = "", video_type: str = 
               language: str = "en", music: str = "ai", source_audio: str = "duck",
               platforms: list[str] | str | None = None, key_moments: list[dict] | None = None,
               file_name: str = "", subtitles: str = "auto", template: str = "", hdr: str = "sdr",
-              broll_dir: str = "", wait: bool = True) -> dict:
+              broll_dir: str = "", voiceover: str = "off", voice: str = "", wait: bool = True) -> dict:
     """Make the finished short in ONE call, offline: analyze, plan, captions, original music,
     render, DaVinci Resolve files and publish kit. Only source and title are needed. Best path for
     small or local models. Speech is captioned word by word when a speech model is installed
@@ -273,7 +280,8 @@ def auto_edit(source: str, title: str, project_dir: str = "", video_type: str = 
     HDR10/HLG instead. Takes a few minutes; wait=false returns a job_id for job_status."""
     _ready()
     b = _brief(source, title, video_type, game, orientation, max_duration, region, language, music, "",
-               source_audio, platforms, key_moments, False, subtitles, hdr=hdr, broll_dir=broll_dir)
+               source_audio, platforms, key_moments, False, subtitles, hdr=hdr, broll_dir=broll_dir,
+               voiceover=voiceover, voice=voice)
     project = _path(project_dir) or os.path.join(os.path.dirname(b.source),
                                                   pl.slug(title).lower() + "-nookcut")
 
@@ -345,7 +353,9 @@ def update_edit(project_dir: str, changes: list[dict], music_style: str = "") ->
     found by the analysis; set null to keep the bars. broll shows one of the user's B-roll files
     over the picture: {"file": name from list_broll, "layout": "cover"|"inset"|"split",
     "main": "broll"|"source" (inset: which is full-size), "start": s, "end": s (within the
-    segment's output time; end null = to its end), "in": s (where the clip starts)}; null removes it. After moving src_in/src_out, words are
+    segment's output time; end null = to its end), "in": s (where the clip starts)}; null removes it.
+    vo is a voiceover line spoken over the segment (short: about 2.5 words a second fits); vo_at
+    when it starts (seconds into the segment, default 0.1); "vo": null removes it. After moving src_in/src_out, words are
     refilled from the transcript. music_style: taiko | pulse | cinematic."""
     project_dir_real = _path(project_dir, must_exist=True)
     path = pl.paths(project_dir_real)["edit"]
@@ -361,7 +371,7 @@ def update_edit(project_dir: str, changes: list[dict], music_style: str = "") ->
             segs.insert(c["insert_at"], ed.seg(s["src_in"], s["src_out"], s.get("kind", "highlight"),
                                                s.get("speed", 1.0), s.get("top", ""), s.get("bottom", ""),
                                                s.get("zoom", 1.0), s.get("hits"), s.get("impact")))
-            for extra in ("words", "crop", "broll"):   # seg() keeps only the basic fields
+            for extra in ("words", "crop", "broll", "vo", "vo_at"):   # seg() keeps only the basic fields
                 if extra in s:
                     segs[c["insert_at"]][extra] = s[extra]
             if "words" not in s:
@@ -423,6 +433,18 @@ def _sheet(path: str) -> Image:
     run(["ffmpeg", "-v", "error", "-y", "-i", path, "-vf", "scale='min(1600,iw)':-2", "-q:v", "4", small],
         step="shrinking the frame sheet")
     return Image(path=small)
+
+
+@_tool(annotations=READ_ONLY)
+def list_voices(language: str = "") -> dict:
+    """Voices on this computer that can speak voiceover lines (name, language), optionally only one
+    language (e.g. en, es). The engine is set on the server; check_environment shows it."""
+    from . import voice
+    names = voice.command_voices() if voice.engine() == "command" else voice.voices()
+    if language:
+        names = [v for v in names if v["language"].lower().startswith(language.lower()[:2])]
+    return {"engine": voice.status()["engine"], "voices": names,
+            "suggested": voice.pick_voice(language or "en") if voice.engine() == "system" else None}
 
 
 @_tool(annotations=READ_ONLY)
@@ -535,6 +557,8 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--path", default="/mcp")
     a = ap.parse_args(argv)
     install_signal_handlers()
+    from .config import load
+    load()   # ~/.config/nookcut/config.env: the shared server doesn't see the shell profile
     try:
         _serve(a)
     finally:  # client gone, Ctrl+C or SIGTERM: stop every job and ffmpeg process now

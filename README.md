@@ -44,7 +44,7 @@ included), and writes a publish kit with titles, hashtags and region-aware posti
 - [Brief options](#brief-options)
 - [MCP tools](#mcp-tools)
 - [What a project folder contains](#what-a-project-folder-contains)
-- [B-roll](#b-roll)
+- [B-roll](#b-roll) · [Voiceover](#voiceover)
 - [Captions in other languages](#captions-in-other-languages)
 - [Configuration](#configuration)
 - [Running it as a shared or remote server](#running-it-as-a-shared-or-remote-server)
@@ -183,6 +183,8 @@ Everything else:
 | `nookcut copy show PROJECT` | Other caption, title and hashtag options for a planned project |
 | `nookcut copy init LANG` | Starts a caption language pack to translate |
 | `nookcut transcript PROJECT [--start S] [--end S]` | What is said, with times |
+| `nookcut voices [--language en]` | Voices that can speak voiceover lines |
+| `nookcut config show \| set KEY VALUE \| unset KEY \| kokoro` | The settings file; `kokoro` sets up a natural voice |
 | `nookcut broll PROJECT` | Lists the project's B-roll files |
 | `nookcut verify PROJECT [--video FILE]` | Checks the last render (exit code 1 if something needs attention) |
 | `nookcut frames PROJECT [--at 1:30 ...] [--count 8] [--source]` | A frame sheet to look at |
@@ -221,6 +223,9 @@ The same options work as CLI flags (`nookcut new` / `make`) and as arguments of 
 | `speech_language` (`--speech-language`) | `auto` | Spoken language for transcription, e.g. `en`, `es`, `hi` |
 | `hdr` (`--hdr`) | `sdr` | HDR recordings: `sdr` (converted, plays right everywhere) or `keep` (10-bit HDR10/HLG) |
 | `fps` (`--fps`) | `auto` | Output frame rate: `auto` (60, or 59.94/50 to match the source), `60`, `30` |
+| `voiceover` (`--voiceover`) | `off` | `captions` reads the hook and end captions aloud; agents add their own lines ([Voiceover](#voiceover)) |
+| `voice` (`--voice`) | best for the language | A voice from `nookcut voices` / `list_voices` |
+| `voice_speed` (`--voice-speed`) | `1.0` | 0.7 to 1.5 |
 | `broll_dir` (`--broll-dir`) | none | A folder of your own clips and pictures to show as [B-roll](#b-roll) |
 | `online` (`--online`) | off | The user allows the agent to research trends on the web |
 | `key_moments` (`--moment`) | none | Moments you know: `--moment "10:42=final blow"` (repeatable), or `["10:42=final blow"]` / `[{"t": 642.7, "label": "final blow"}]` for agents. A label with win, final, kill, victory or blow marks the win; on non-game videos the label becomes that moment's caption |
@@ -241,6 +246,7 @@ The same options work as CLI flags (`nookcut new` / `make`) and as arguments of 
 | `generate_music` | Composes the original score (or masters your own track) |
 | `render_video` | Renders the final video and checks it (see `verify_video`) |
 | `verify_video` | Checks a render: size, frame rate, length against the plan, colour, loudness, black or frozen picture, silence; plus one frame per segment as an image |
+| `list_voices` | Voices that can speak voiceover lines on this computer |
 | `list_broll` | Your B-roll files with their lengths, plus a picture of each |
 | `get_frames` | A labelled sheet of frames from the render or the source, at given times or spread evenly, for agents that can see images |
 | `export_resolve` | EDLs and a Lua script that rebuild the edit in DaVinci Resolve, plus `captions.srt` when there is speech |
@@ -292,6 +298,28 @@ segment with `update_edit`. Short clips loop, pictures drift slowly so they look
 that is HDR or BT.601 is converted like the main recording. B-roll isn't in the DaVinci Resolve
 EDL yet (its times are in `markers.txt`), and it can't be used with `hdr: keep`.
 
+## Voiceover
+
+Each segment can have a line (`vo`) spoken over it. Agents write lines with `update_edit`;
+`--voiceover captions` reads the hook and end captions aloud for you. Lines are spoken on your
+computer, placed at the start of their segment, sped up a little if they don't fit (and reported
+if they still don't), and the game sound and music dip about 12 dB under the voice. With speech
+captions on, the spoken words are captioned too. The checks report any line that runs long.
+
+The voice comes from the computer itself (macOS `say`; espeak-ng on Linux and Windows' built-in
+voice are wired up but untested), which is free and offline but sounds synthetic. For a natural
+voice, use [Kokoro](https://github.com/thewh1teagle/kokoro-onnx), which runs offline on your computer:
+install it in its own Python (`pip install kokoro-onnx soundfile`, plus its two model files), then
+
+```bash
+nookcut config kokoro [--python /path/to/kokoro/python] [--models /path/to/model/folder]
+nookcut service restart            # if you use the shared server
+```
+
+It test-speaks a line and saves the command; `nookcut voices` then lists Kokoro's voices (`--voice
+am_michael`, `af_heart`, ...). Any other program works through `NOOKCUT_TTS_COMMAND`. NookCut never
+downloads or installs a voice engine itself.
+
 ## Captions in other languages
 
 English captions, titles and hashtags ship built in. For another language, create a pack and
@@ -315,6 +343,9 @@ you leave out fall back to English. Packs are plain JSON, so they work offline t
 | `NOOKCUT_ALLOWED_DIRS` | unrestricted | Folders the MCP tools may read and write (`:`-separated; `;` on Windows) |
 | `NOOKCUT_COPY_DIR` | `~/.nookcut/copy` | Where your language packs live |
 | `NOOKCUT_TONEMAP` | auto | HDR to SDR: `videotoolbox` (Apple GPU) or `cpu` (zscale); auto tries the GPU first |
+| `NOOKCUT_CONFIG` | `~/.config/nookcut/config.env` | A settings file of `NOOKCUT_*=value` lines, read by the CLI and the server (`nookcut config show/set/unset`); the environment wins |
+| `NOOKCUT_TTS` | auto | Voiceover engine: `system` (the computer's voice), `command`, or `off` |
+| `NOOKCUT_TTS_COMMAND` | none | Your own text-to-speech program, e.g. `kokoro-say --text {text_file} --out {out_wav} --voice {voice} --speed {speed}`; run without a shell, set on the server only |
 | `NOOKCUT_MODELS_DIR` | `~/.nookcut/models` | Where `nookcut models install` puts speech models |
 | `NOOKCUT_WHISPER_MODEL` | best installed | Speech model to use: a name (`base`, `small`, ...) or a `.bin` path |
 | `NOOKCUT_TOKEN` / `NOOKCUT_TOKEN_FILE` | none | Bearer token for the HTTP transport |

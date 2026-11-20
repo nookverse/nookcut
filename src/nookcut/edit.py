@@ -83,6 +83,10 @@ def validate(edit: dict, source_duration: float | None = None) -> list[str]:
             errors.append(f"segment {i}: speed {s['speed']} out of range 0.1..4")
         if source_duration and s["src_out"] > source_duration + 0.05:
             errors.append(f"segment {i}: src_out {s['src_out']} beyond source end {source_duration:.2f}")
+        if s.get("vo") is not None and (not isinstance(s["vo"], str) or len(s["vo"]) > 400):
+            errors.append(f"segment {i}: vo must be text of at most 400 characters")
+        if s.get("vo_at") is not None and not 0 <= float(s["vo_at"]) < seg_duration(s):
+            errors.append(f"segment {i}: vo_at must be inside the segment (0-{seg_duration(s):.1f} s)")
         if s.get("broll") and edit.get("hdr") == "keep" and edit.get("source_hdr"):
             errors.append(f"segment {i}: B-roll can't be shown in HDR output yet (set hdr to sdr, or remove it)")
         elif s.get("broll"):

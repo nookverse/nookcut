@@ -48,6 +48,8 @@ download they run themselves; after that it works offline), and carry on without
 | subtitles | word-by-word captions of what is said: auto, on, off | auto (on when a speech model is installed) |
 | speech_language | the spoken language, if not English and detection gets it wrong | auto |
 | fps | output frame rate: auto (60, matching 59.94/50 sources), 60 or 30 for smaller files | auto |
+| voiceover | read the hook and end captions aloud (captions), or off | off |
+| voice | a voice from list_voices (only if they care) | best for the language |
 | broll_dir | a folder of their own clips/pictures for B-roll (only if they have one; never download) | none |
 | hdr | only for HDR recordings: sdr (converted, plays right everywhere) or keep (HDR10/HLG) | sdr; keep only if the user asks for HDR |
 | online | may you research trends on the web? (ask only if you have a search tool) | no |
@@ -109,14 +111,19 @@ claim. Keep it to the 3-5 most useful points.
    - end card: a question that invites comments
    - `music_style`: taiko (samurai, martial, historical), pulse (shooters, sci-fi, esports, tech),
      cinematic (bosses, fantasy, epic, sports)
-5. **B-roll** (only with a `broll_dir`): the plan's `broll` line says what was placed and why.
+5. **Voiceover** (optional): write a short line for a segment with `update_edit` `{"i": n, "vo": "..."}`
+   (about 2.5 words per second of segment; facts only from what you saw or the user said).
+   `render_video`'s checks say if a line runs long: shorten it. Don't talk over the recording's
+   own speech. The default voice is the computer's own and sounds synthetic; say so, and mention
+   NOOKCUT_TTS_COMMAND for a natural voice they've installed. Never install a voice engine yourself.
+6. **B-roll** (only with a `broll_dir`): the plan's `broll` line says what was placed and why.
    `list_broll` shows the user's files (with pictures). Put one where it shows what is being said,
    with `update_edit` `{"i": n, "broll": {"file": name, "layout": "cover", "start": s, "end": s}}`
    (`inset` with `main` for picture-in-picture, `split` for side by side). Keep the speaker visible
    in the hook and when they make their main point. Use only the user's own files.
-6. Black bars (cinematic letterbox) are cut off automatically in vertical and square videos; if
+7. Black bars (cinematic letterbox) are cut off automatically in vertical and square videos; if
    the user wants the cinematic bars, set that segment's `crop` to null with `update_edit`.
-7. `preview_plan` returns the contact sheet as an image. Look at it and fix obviously bad picks
+8. `preview_plan` returns the contact sheet as an image. Look at it and fix obviously bad picks
    (black frames, menus, loading screens) with `update_edit`. Then show the user the preview and
    the segment list and **get approval before rendering**.
 

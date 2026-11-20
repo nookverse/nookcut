@@ -13,6 +13,7 @@ SOURCE_AUDIO = ("keep", "duck", "mute")
 SUBTITLES = ("auto", "on", "off")
 HDR_MODES = ("sdr", "keep")
 FPS_MODES = ("auto", "60", "30")
+VOICEOVER = ("off", "captions")
 
 # Upload length caps in seconds for the short-form surfaces (check platform help pages; they change).
 PLATFORM_MAX = {"youtube_shorts": 180, "tiktok": 600, "instagram_reels": 180,
@@ -35,6 +36,7 @@ ALIASES = {
                      "mute": ("off", "none", "silent", "no")},
     "hdr": {"sdr": ("", "off", "no", "false", "convert", "tonemap", "tone_map", "auto"),
             "keep": ("on", "yes", "true", "hdr", "hdr10", "keep_hdr", "10bit", "10_bit")},
+    "voiceover": {"off": ("", "no", "false", "none"), "captions": ("on", "yes", "true", "auto", "read", "read_captions")},
     "fps": {"auto": ("", "source", "default", "match"), "60": ("60fps", "59.94", "smooth", "high"),
             "30": ("30fps", "29.97", "small", "low")},
     "subtitles": {"auto": ("", "default"), "on": ("yes", "true", "always", "speech", "captions", "required"),
@@ -105,6 +107,9 @@ class Brief:
     hdr: str = "sdr"                            # HDR sources: sdr (tone-mapped, plays everywhere) | keep (HDR10/HLG)
     fps: str = "auto"                           # output frame rate: auto (60, or 59.94 for NTSC sources) | 60 | 30
     broll_dir: str = ""                         # folder of the user's own clips/pictures to show as B-roll
+    voiceover: str = "off"                      # off | captions (read the hook and end captions aloud); agents add lines
+    voice: str = ""                             # voice name (list_voices); empty = the best one for the language
+    voice_speed: float = 1.0                    # 0.7-1.5
 
     def __post_init__(self):
         self.video_type = canonical("video_type", self.video_type)
@@ -117,6 +122,9 @@ class Brief:
         if isinstance(self.hdr, bool):
             self.hdr = "keep" if self.hdr else "sdr"
         self.hdr = canonical("hdr", self.hdr)
+        self.voiceover = canonical("voiceover", "on" if self.voiceover is True else "off" if self.voiceover is False
+                                   else self.voiceover)
+        self.voice_speed = float(self.voice_speed or 1.0)
         self.fps = canonical("fps", str(int(self.fps)) if isinstance(self.fps, (int, float)) else self.fps)
         if isinstance(self.platforms, str):
             self.platforms = self.platforms.split(",")
@@ -146,6 +154,10 @@ class Brief:
             raise ValueError(f"hdr {self.hdr!r} is unknown; use one of {', '.join(HDR_MODES)}")
         if self.broll_dir and not os.path.isdir(os.path.expanduser(self.broll_dir)):
             raise ValueError(f"the B-roll folder {self.broll_dir!r} can't be found")
+        if self.voiceover not in VOICEOVER:
+            raise ValueError(f"voiceover {self.voiceover!r} is unknown; use one of {', '.join(VOICEOVER)}")
+        if not 0.7 <= self.voice_speed <= 1.5:
+            raise ValueError("voice_speed must be between 0.7 and 1.5")
         if self.fps not in FPS_MODES:
             raise ValueError(f"fps {self.fps!r} is unknown; use one of {', '.join(FPS_MODES)}")
         if self.max_duration < 10:
