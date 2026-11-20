@@ -218,7 +218,7 @@ The same options work as CLI flags (`nookcut new` / `make`) and as arguments of 
 | `hdr` (`--hdr`) | `sdr` | HDR recordings: `sdr` (converted, plays right everywhere) or `keep` (10-bit HDR10/HLG) |
 | `fps` (`--fps`) | `auto` | Output frame rate: `auto` (60, or 59.94/50 to match the source), `60`, `30` |
 | `online` (`--online`) | off | The user allows the agent to research trends on the web |
-| `key_moments` | none | Moments you know, e.g. `[{"t": 642.7, "label": "final blow"}]`; MCP only, or edit `brief.json` and re-run `analyze` |
+| `key_moments` (`--moment`) | none | Moments you know: `--moment "10:42=final blow"` (repeatable), or `["10:42=final blow"]` / `[{"t": 642.7, "label": "final blow"}]` for agents. A label with win, final, kill, victory or blow marks the win; on non-game videos the label becomes that moment's caption |
 
 ## MCP tools
 

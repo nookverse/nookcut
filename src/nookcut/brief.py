@@ -66,6 +66,19 @@ def seconds(value) -> float:
     return float(m.group(1) or 0) * 60 + float(m.group(2) or 0)
 
 
+def moment(value) -> dict:
+    """A known moment: {"t": 642.7, "label": "final blow"}, or text like "10:42.7=final blow",
+    "642.7=final blow" or just "10:42" (time as in seconds())."""
+    if isinstance(value, dict):
+        return {**value, "t": seconds(value.get("t", 0))}
+    when, _, label = str(value).partition("=")
+    try:
+        t = seconds(when.strip())
+    except ValueError:
+        raise ValueError(f"key moment {value!r} needs a time first, like '10:42=final blow' or '642.7'") from None
+    return {"t": t, "label": label.strip()} if label.strip() else {"t": t}
+
+
 PLATFORM_ORIENTATION = {"youtube_shorts": "vertical", "tiktok": "vertical", "instagram_reels": "vertical",
                         "facebook_reels": "vertical", "youtube": "wide"}
 
@@ -84,7 +97,6 @@ class Brief:
     music: str = "ai"                           # ai | none | file
     music_file: str = ""
     source_audio: str = "duck"                  # keep | duck | mute
-    spoilers: bool = True
     key_moments: list[dict] = field(default_factory=list)  # [{"t": 642.7, "label": "final blow"}]
     online: bool = False                        # user allowed the agent to research on the web (opt-in)
     subtitles: str = "auto"                     # word-by-word speech captions: auto (if a model is installed) | on | off
@@ -108,6 +120,9 @@ class Brief:
             self.platforms = self.platforms.split(",")
         self.platforms = list(dict.fromkeys(canonical("platform", p) for p in self.platforms if str(p).strip()))
         self.max_duration = seconds(self.max_duration)
+        if isinstance(self.key_moments, (str, dict)):
+            self.key_moments = [self.key_moments]
+        self.key_moments = [moment(m) for m in self.key_moments or []]
         if isinstance(self.online, str):
             self.online = self.online.strip().lower() in ("1", "true", "yes", "on")
 

@@ -25,6 +25,7 @@ All notable changes to this project are documented here. The format follows
   light-level metadata, on the GPU (VideoToolbox, NVENC, AMF, Quick Sync, VA-API; each test-encoded
   first) or `libx265`, with captions at paper white. `check_environment` reports `hdr`.
 - `fps` option (`--fps auto|60|30`).
+- `--moment "10:42=final blow"` sets key moments from the CLI; agents may pass the same text form.
 - `CREDITS.md`: the open-source projects and models NookCut uses, with their licenses.
 - `nookcut --version`.
 - README: platform support table, alpha status, update and uninstall steps, full `make` options.
@@ -43,6 +44,7 @@ All notable changes to this project are documented here. The format follows
   of rendering wrong colours.
 
 ### Changed
+- Removed the brief's `spoilers` option, which nothing used (old brief files still load).
 - Built-in titles no longer restate the user's title ("It took me 17 tries took me 18 tries").
 - The preview contact sheet shows at most 40 segments, sampled evenly.
 - macOS install hint is now `brew install ffmpeg-full` (Homebrew's plain `ffmpeg` lacks `drawtext`).

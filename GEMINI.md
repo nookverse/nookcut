@@ -39,7 +39,7 @@ download they run themselves; after that it works offline), and carry on without
 | language | caption language | en |
 | music | AI original (copyright-free), none, or their own file | ai |
 | source_audio | keep / duck / mute the original sound | duck |
-| key_moments | timestamps they already know ("win at 10:42") | none |
+| key_moments | timestamps they already know ("win at 10:42"): pass ["10:42=final blow"] | none |
 | subtitles | word-by-word captions of what is said: auto, on, off | auto (on when a speech model is installed) |
 | speech_language | the spoken language, if not English and detection gets it wrong | auto |
 | fps | output frame rate: auto (60, matching 59.94/50 sources), 60 or 30 for smaller files | auto |

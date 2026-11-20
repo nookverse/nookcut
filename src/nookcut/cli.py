@@ -56,6 +56,9 @@ def _brief_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--source-audio", default="duck")
     p.add_argument("--platforms", default="youtube_shorts,tiktok,instagram_reels")
     p.add_argument("--online", action="store_true", help="the user allows the agent to research on the web")
+    p.add_argument("--moment", action="append", default=[], dest="key_moments", metavar="TIME[=LABEL]",
+                   help='a moment you know, e.g. --moment "10:42=final blow" (repeatable; a label with '
+                        'win/final/kill/victory/blow marks the win)')
     p.add_argument("--subtitles", default="auto", help="word-by-word speech captions: auto | on | off")
     p.add_argument("--speech-language", default="auto", help="spoken language, e.g. en or es (auto detects)")
     p.add_argument("--fps", default="auto", help="output frame rate: auto (60, or 59.94/50 to match the source) | 60 | 30")
@@ -67,7 +70,7 @@ def _brief(a) -> Brief:
                  game=a.game,
                  platforms=a.platforms.split(","), orientation=a.orientation, max_duration=a.max_duration,
                  region=a.region, language=a.language, music=a.music, music_file=a.music_file,
-                 source_audio=a.source_audio, online=a.online, subtitles=a.subtitles,
+                 source_audio=a.source_audio, online=a.online, subtitles=a.subtitles, key_moments=a.key_moments,
                  speech_language=a.speech_language, hdr=a.hdr, fps=a.fps)
 
 

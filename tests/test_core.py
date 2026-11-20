@@ -539,6 +539,17 @@ class FrameRate(unittest.TestCase):
         self.assertFalse(needs_interpolation({"source_fps": 30, "fps": "60"}, {"speed": 1.0}))
         self.assertTrue(needs_interpolation({"source_fps": 240, "fps": "60"}, {"speed": 0.2}))
 
+    def test_key_moments_as_text(self):
+        from nookcut.brief import moment
+        self.assertEqual(moment("10:42.5=final blow"), {"t": 642.5, "label": "final blow"})
+        self.assertEqual(moment("90"), {"t": 90.0})
+        self.assertEqual(moment({"t": "1:00", "label": "x"}), {"t": 60.0, "label": "x"})
+        b = Brief(title="t", source="x", key_moments="0:30=win")
+        self.assertEqual(b.key_moments, [{"t": 30.0, "label": "win"}])
+        with self.assertRaises(ValueError):
+            moment("final blow")
+        self.assertFalse(hasattr(Brief(title="t", source="x"), "spoilers"))
+
     def test_brief_fps(self):
         self.assertEqual(Brief(title="t", source="x").fps, "auto")
         self.assertEqual(Brief(title="t", source="x", fps=30).fps, "30")

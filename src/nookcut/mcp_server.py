@@ -240,7 +240,7 @@ def create_project(project_dir: str, source: str, title: str, video_type: str = 
     """Step 1. Save the brief into project_dir. video_type: gameplay|talking|sports|tutorial|generic
     (empty = gameplay if game is set). orientation: vertical|square|wide. music: ai|none|file.
     source_audio: keep|duck|mute. platforms: youtube_shorts, tiktok, instagram_reels, facebook_reels,
-    youtube, x. key_moments: [{"t": seconds, "label": "..."}]. online: true only if the user allowed
+    youtube, x. key_moments: [{"t": seconds, "label": "..."}] or ["10:42=final blow"]. online: true only if the user allowed
     web research. subtitles: auto|on|off word-by-word captions of what is said (auto = when a speech
     model is installed). speech_language: auto or a code like en, es, hi. hdr (HDR sources only):
     sdr = convert to normal colour, plays right everywhere (default); keep = HDR10/HLG HEVC output,

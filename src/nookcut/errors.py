@@ -112,6 +112,7 @@ def as_nookcut(e: BaseException) -> NookCutError:
     if isinstance(e, PermissionError):
         return InputError(str(e), "Pick a folder NookCut is allowed to use.")
     if isinstance(e, (ValueError, KeyError)):
-        return InputError(str(e).strip("'\""))
+        # KeyError's text is the quoted key; a ValueError message may end in a quoted example
+        return InputError(str(e).strip("'\"") if isinstance(e, KeyError) else str(e))
     return NookCutError(f"Unexpected error: {type(e).__name__}: {e}",
                         "This is likely a NookCut bug; please report it with the steps that caused it.")

@@ -153,7 +153,8 @@ It prints the install command for your system. Install ffmpeg (a full build), or
 PATH): Homebrew's plain `ffmpeg` has no `drawtext`, so it can't draw captions.
 
 **It didn't find the win or the deaths in my video.**
-Give it the moments you know: `key_moments: [{"t": 642.7, "label": "final blow"}]` in
+Give it the moments you know: `--moment "10:42.7=final blow"` on the command line, or
+`key_moments: ["10:42.7=final blow"]` (or `[{"t": 642.7, "label": "final blow"}]`) in
 `create_project`, or pick the `highlights` template.
 
 **The tools stopped responding after I updated NookCut.**
