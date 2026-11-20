@@ -28,6 +28,7 @@ from . import edit as ed
 from .brief import Brief
 from .export import resolve_kit
 from .music import compose
+from . import broll as br
 from . import qc
 from .publish import write_kit
 from .render import preview, render
@@ -188,6 +189,14 @@ def make_plan(project: str, template: str | None = None) -> dict:
         add_speech(edit, words, brief)
     clear_of_cuts(edit, result["signals"].get("scenes"))
     crop_bars(edit, result)
+    if brief.broll_dir:
+        files = broll_files(project)
+        notes = br.auto_place(edit, files) if brief.hdr != "keep" or not edit.get("source_hdr") else []
+        edit["broll_notes"] = notes or [
+            ("B-roll isn't used with HDR output (hdr: keep)" if brief.hdr == "keep" and edit.get("source_hdr") else
+             "none placed automatically: " + ("no clip name matched a word the speaker says" if words else
+                                              "automatic placement needs speech (a speech model)") +
+             "; place B-roll with update_edit")]
     ed.save(edit, p["edit"])
     return describe(edit)
 
@@ -196,8 +205,11 @@ def describe(edit: dict) -> dict:
     out = {"template": edit["template"], "length": ed.total(edit), "segments": [
         {"i": i, "kind": s["kind"], "at": st, "dur": round(d, 2), "src": [s["src_in"], s["src_out"]],
          "speed": s["speed"], "top": s["top"], "bottom": s["bottom"],
-         **({"speech": " ".join(w[2] for w in s["words"])} if s.get("words") else {})}
+         **({"speech": " ".join(w[2] for w in s["words"])} if s.get("words") else {}),
+         **({"broll": s["broll"]} if s.get("broll") else {})}
         for i, (st, d, s) in enumerate(ed.timeline(edit))], "speech_captions": bool(edit.get("subtitles"))}
+    if edit.get("broll_notes"):
+        out["broll"] = edit["broll_notes"]
     if edit["template"] == "tighten":
         out["note"] = (f"{edit.get('removed_s', 0):.0f} s of pauses cut out; the whole talk is kept, so max_duration "
                        "doesn't apply. No generated music under jump cuts.")
@@ -260,6 +272,15 @@ def _render(project: str, out_name: str | None, t: Task) -> str:
     env = check()
     return render(edit, out, music, hwaccel=env.get("hardware_decode"), encoder=env.get("hardware_encode"),
                   task=t)
+
+
+def broll_files(project: str, task: Task | None = None) -> list[dict]:
+    """The project's B-roll folder, indexed (probes cached in .nookcut/broll.json)."""
+    from .tasks import state_dir
+    brief = Brief.load(paths(project)["brief"])
+    if not brief.broll_dir:
+        raise InputError("This project has no B-roll folder.", "Set broll_dir in the brief (create_project).")
+    return br.index(brief.broll_dir, os.path.join(state_dir(project), "broll.json"), task)
 
 
 def latest_render(project: str) -> str:

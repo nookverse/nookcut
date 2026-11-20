@@ -16,7 +16,8 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .edit import fps_value, seg_duration, timeline, total
-from .errors import EnvironmentNotReady, MediaError, explain_ffmpeg
+from .errors import EnvironmentNotReady, InputError, MediaError, explain_ffmpeg
+from . import broll as br
 from . import color
 from . import subtitles as subs
 from .preflight import encoder_args, find_font, has_filter, install_hint, pick_hdr_encoder
@@ -124,6 +125,78 @@ def _text(work, i, s, dur, L, font, W=0, H=0, speech=None, hdr=None):
     return f
 
 
+INSET = 0.38      # an inset picture's width, as a share of the picture area
+INSET_GAP = 24    # its distance from the corner, in pixels
+
+
+def _fill(w: int, h: int) -> str:
+    """Scale to cover a w x h box and crop the overflow (any aspect in, no black edges)."""
+    return f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1"
+
+
+def _broll(edit: dict, s: dict, box: tuple, rate: str, dur: float, look_args: list, L: dict) -> tuple:
+    """B-roll over the picture area box=(w, h, x, y): extra input options, the filter steps that
+    turn [base] (and [fg2], the source picture, when the layout needs it) into [cv], and whether
+    [fg2] is needed. The source's cut, speed and sound are untouched."""
+    b = s["broll"]
+    path = br.resolve(edit.get("broll_dir", ""), b["file"])
+    info = br._probe_one(path, None)
+    w, h, x, y = box
+    t0 = float(b.get("start") or 0)
+    t1 = float(b["end"]) if b.get("end") is not None else dur
+    on = f":enable='between(t,{t0:.3f},{t1:.3f})'"
+    # its own colour handling: B-roll can be HDR or BT.601 whatever the main recording is
+    if info["hdr"]:
+        method = color.pick_tonemap()
+        if not method:
+            raise EnvironmentNotReady(f"The B-roll file {b['file']} is HDR, and converting it needs ffmpeg's "
+                                      "zscale filter.", "Use an SDR copy of it, or install a full ffmpeg build.")
+        pre = color.tonemap_filter(method) + ","
+        extra = [a for a in color.tonemap_args(method) if a not in look_args] if method == "videotoolbox" else []
+        if extra and "-init_hw_device" in look_args:
+            extra = []
+    else:
+        pre, extra = color.sdr_filter(info["matrix"]) + ",", []
+    if info["still"]:
+        args = extra + ["-loop", "1", "-framerate", rate, "-t", f"{dur + 0.5:.3f}", "-i", path]
+    else:
+        args = extra + ["-stream_loop", "-1", "-ss", f"{float(b.get('in') or 0):.3f}", "-t", f"{dur + 0.5:.3f}",
+                        "-i", path]
+    src = f"[1:v]{pre}setpts=PTS-STARTPTS+{t0:.3f}/TB,fps={rate}"
+
+    def fitted(bw, bh):
+        if not info["still"]:
+            return _fill(bw, bh)
+        # a still drifts slowly across, so it looks alive (and isn't a frozen picture)
+        zw, zh = int(bw * 1.12) // 2 * 2, int(bh * 1.12) // 2 * 2
+        span = max(0.5, t1 - t0)
+        return (f"{_fill(zw, zh)},crop={bw}:{bh}:x='(iw-ow)*min(1,max(0,(t-{t0:.3f})/{span:.3f}))'"
+                f":y='(ih-oh)/2'")
+
+    layout, main = b.get("layout", "cover"), b.get("main", "broll")
+    iw = int(w * INSET) // 2 * 2
+    ih = int(iw * h / w) // 2 * 2
+    bottom = y + h - INSET_GAP
+    if L["bottom_y"] < y + h:      # captions are drawn over the picture (wide): keep the box above them
+        bottom = min(bottom, L["bottom_y"] - INSET_GAP)
+    corner = (x + w - iw - INSET_GAP - 8, bottom - ih - 8)
+    frame = "pad=iw+8:ih+8:4:4:color=white"
+    if layout == "split":
+        half = w // 2 // 2 * 2
+        steps = (f"{src},{fitted(w - half, h)}[br];[fg2]crop={half}:{h}:{(w - half) // 2}:0[sh];"
+                 f"[base][sh]overlay={x}:{y}{on}[t1];[t1][br]overlay={x + half}:{y}{on}[cv]")
+        return args, steps, True
+    if layout == "inset" and main == "source":
+        steps = f"{src},{fitted(iw, ih)},{frame}[br];[base][br]overlay={corner[0]}:{corner[1]}{on}[cv]"
+        return args, steps, False
+    if layout == "inset":   # B-roll full-size, the speaker (or gameplay) in the corner
+        steps = (f"{src},{fitted(w, h)}[br];[base][br]overlay={x}:{y}{on}[t1];"
+                 f"[fg2]scale={iw}:{ih},{frame}[sm];[t1][sm]overlay={corner[0]}:{corner[1]}{on}[cv]")
+        return args, steps, True
+    steps = f"{src},{fitted(w, h)}[br];[base][br]overlay={x}:{y}{on}[cv]"
+    return args, steps, False
+
+
 def needs_interpolation(edit: dict, s: dict) -> bool:
     """Slow motion needs made-up frames only when the source has too few: source fps x speed below
     the output rate (60 fps at 0.5x gives 30: interpolate; 120 fps at 0.5x gives 60: real frames)."""
@@ -163,20 +236,32 @@ def _segment(edit, i, s, work, font, hwaccel, src_w, src_h, task=None, on_progre
         fg += f",minterpolate=fps={rate}:mi_mode=mci:mc_mode=aobmc:vsbmc=1"
     if s["kind"] == "card":
         fg += ",eq=brightness=-0.25:saturation=0.6"
+    extra_in, layer, need_src = [], "", False
+    if s.get("broll"):
+        if hdr:
+            raise InputError("B-roll can't be shown in HDR output yet.",
+                             "Set hdr to sdr, or remove the B-roll from this segment (update_edit broll: null).")
+        extra_in, layer, need_src = _broll(edit, s, (fg_w, fg_h, x, y), rate, dur, look["args"], L)
+    picture = ",split[fg][fg2]" if need_src else "[fg]"
     if (fg_w, fg_h) == (W, H):
-        graph = f"[0:v]{pre},setpts=(PTS-STARTPTS)/{s['speed']},fps={rate},{fg}"
+        graph = f"[0:v]{pre},setpts=(PTS-STARTPTS)/{s['speed']},fps={rate},{fg}" + \
+            (",split[base][fg2]" if need_src else "[base]")
     else:
         graph = (f"[0:v]{pre},setpts=(PTS-STARTPTS)/{s['speed']},fps={rate},split[a][b];"
                  f"[a]scale={W // 4}:{H // 4}:force_original_aspect_ratio=increase,crop={W // 4}:{H // 4},"
-                 f"gblur=sigma=10,scale={W}:{H},eq=brightness=-0.18:saturation=0.8[bg];[b]{fg}[fg];"
-                 f"[bg][fg]overlay={x}:{y}" + (":format=yuv420p10" if hdr else ""))
+                 f"gblur=sigma=10,scale={W}:{H},eq=brightness=-0.18:saturation=0.8[bg];[b]{fg}{picture};"
+                 f"[bg][fg]overlay={x}:{y}" + (":format=yuv420p10" if hdr else "") + "[base]")
+    if layer:
+        graph += ";" + layer
     speech = subs.local_words(s) if edit.get("subtitles") else []
-    graph += "," + ",".join(_text(work, i, s, dur, L, font, W, H, speech, hdr) + [enc["fmt"]]) + "[v]"
+    graph += f";[{'cv' if layer else 'base'}]" + \
+        ",".join(_text(work, i, s, dur, L, font, W, H, speech, hdr) + [enc["fmt"]]) + "[v]"
     out = os.path.join(work, f"seg{i:03d}.mov")
     cmd = ["ffmpeg", "-v", "error", "-y"] + enc["pre"] + look["args"]
     if hwaccel:
         cmd += ["-hwaccel", hwaccel]
     cmd += ["-ss", f"{s['src_in']}", "-t", f"{s['src_out'] - s['src_in']}", "-i", edit["source"]]
+    cmd += extra_in   # B-roll is input 1; the sound always comes from the recording
     has_audio = edit.get("source_audio") != "mute"
     # 10 ms fades at both ends: jump cuts join without clicks
     afade = f"afade=t=in:d=0.01,afade=t=out:st={max(0.0, dur - 0.01):.4f}:d=0.01"
@@ -349,10 +434,24 @@ def preview(edit: dict, out_png: str, task: Task | None = None) -> str:
             cp = os.path.join(work, f"c{i}.txt"); open(cp, "w", encoding="utf-8").write(cap or " ")
             out = os.path.join(work, f"p{i:03d}.png")
             bars = f",crop={s['crop'][2]}:{s['crop'][3]}:{s['crop'][0]}:{s['crop'][1]}" if s.get("crop") else ""
-            vf = (f"{look['pre']}{bars},scale=480:270,drawtext=fontfile={_q(font)}:textfile={_q(lp)}:fontsize=18:fontcolor=yellow"
+            source, at, pre_args, colour = edit["source"], mid, look["args"], look["pre"] + bars
+            b = s.get("broll")
+            local = (mid - s["src_in"]) / s["speed"]
+            if b and float(b.get("start") or 0) <= local <= (b["end"] if b.get("end") is not None else dur):
+                # the sheet shows what the viewer will see: the B-roll, where it covers the picture
+                source = br.resolve(edit.get("broll_dir", ""), b["file"])
+                at, pre_args, colour = float(b.get("in") or 0) + local - float(b.get("start") or 0), [], "null"
+                length = br._probe_one(source, task).get("duration")
+                if length:
+                    at %= length   # short clips loop in the render; the sheet shows the same frame
+                label += f"  B-roll: {b['file']} ({b.get('layout', 'cover')})"
+                open(lp, "w", encoding="utf-8").write(label)
+            vf = (f"{colour},scale=480:270,drawtext=fontfile={_q(font)}:textfile={_q(lp)}:fontsize=18:fontcolor=yellow"
                   f":box=1:boxcolor=black@0.7:x=6:y=6,drawtext=fontfile={_q(font)}:textfile={_q(cp)}:fontsize=26"
                   f":fontcolor=white:borderw=3:bordercolor=black:x=(w-text_w)/2:y=h-40")
-            run(["ffmpeg", "-v", "error", "-y", *look["args"], "-ss", f"{mid}", "-i", edit["source"], "-frames:v", "1",
+            still = source.lower().endswith(br.IMAGE_EXT)
+            run(["ffmpeg", "-v", "error", "-y", *pre_args, *([] if still else ["-ss", f"{at:.3f}"]), "-i", source,
+                 "-frames:v", "1",
                  "-vf", vf, out], task, f"grabbing the frame for segment {i + 1}", timeout=120)
             tiles.append(out)
             task.set(i + 1)

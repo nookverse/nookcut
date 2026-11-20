@@ -59,6 +59,32 @@ def frames(video: str, out_path: str, times: list[float], labels: list[str] | No
         shutil.rmtree(work, ignore_errors=True)
 
 
+def thumbnails(items: list[tuple[str, float, str]], out_path: str, tile: tuple[int, int] = (320, 180),
+               task: Task | None = None) -> str:
+    """A labelled grid of one frame from each of several files: [(path, time, label), ...]."""
+    task = task or Task(track=False)
+    font = find_font()
+    work = tempfile.mkdtemp(prefix="nookcut_thumbs_")
+    try:
+        for i, (path, t, label) in enumerate(items):
+            lp = os.path.join(work, f"l{i}.txt")
+            with open(lp, "w", encoding="utf-8") as f:
+                f.write(label)
+            text = (f",drawtext=fontfile={filter_quote(font)}:textfile={filter_quote(lp)}:fontsize=14"
+                    ":fontcolor=yellow:box=1:boxcolor=black@0.7:x=4:y=4") if font else ""
+            run(["ffmpeg", "-v", "error", "-y", "-ss", f"{t:.2f}", "-i", path, "-frames:v", "1", "-vf",
+                 f"scale={tile[0]}:{tile[1]}:force_original_aspect_ratio=decrease,pad={tile[0]}:{tile[1]}:"
+                 f"(ow-iw)/2:(oh-ih)/2{text}", os.path.join(work, f"f{i:03d}.png")], task, f"a picture of {label}",
+                timeout=60)
+        cols = min(4, len(items))
+        run(["ffmpeg", "-v", "error", "-y", "-framerate", "1", "-i", os.path.join(work, "f%03d.png"),
+             "-vf", f"tile={cols}x{(len(items) + cols - 1) // cols}", "-frames:v", "1", "-q:v", "3", out_path],
+            task, "building the B-roll sheet")
+        return out_path
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def spread(duration: float, count: int) -> list[float]:
     """count times spread evenly across a video, away from the very first and last frame."""
     count = max(1, min(int(count), 24))

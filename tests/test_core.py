@@ -620,6 +620,118 @@ class Checks(unittest.TestCase):
                              ["colour is tagged smpte2084, expected bt709"])
 
 
+class Broll(unittest.TestCase):
+    def setUp(self):
+        import tempfile, os
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = os.path.join(self.tmp.name, "clips")
+        os.makedirs(os.path.join(self.dir, "more"))
+        for name in ("boss fight.mp4", "pillar.png", "more/map-overview.mp4"):
+            open(os.path.join(self.dir, name), "w").close()
+        open(os.path.join(self.tmp.name, "secret.mp4"), "w").close()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_only_files_inside_the_folder(self):
+        from nookcut.broll import resolve
+        from nookcut.errors import InputError
+        self.assertTrue(resolve(self.dir, "more/map-overview.mp4").endswith("map-overview.mp4"))
+        for bad in ("../secret.mp4", "/etc/hosts", "missing.mp4"):
+            with self.assertRaises(InputError):
+                resolve(self.dir, bad)
+
+    def test_placed_where_the_speaker_names_it(self):
+        from nookcut.broll import auto_place, tokens
+        from nookcut.edit import seg
+        self.assertEqual(tokens("Boss_Fight-final 2.mp4"), {"boss", "fight"})
+        words = lambda t, text: [[t + k * 0.4, t + k * 0.4 + 0.35, w] for k, w in enumerate(text.split())]
+        e = {"segments": [seg(0, 3, "hook"), seg(5, 10, "highlight"), seg(12, 17, "highlight"),
+                          seg(20, 25, "highlight"), seg(30, 40, "end")]}
+        e["segments"][0]["words"] = words(0, "the boss is here")         # the hook stays on the speaker
+        e["segments"][1]["words"] = words(5, "find the bosses first")    # plural matches
+        e["segments"][2]["words"] = words(12, "another boss then the map")  # boss used already: map instead
+        e["segments"][3]["words"] = words(20, "nothing to show here")
+        files = [{"file": "boss fight.mp4"}, {"file": "more/map-overview.mp4"}, {"file": "pillar.png"}]
+        notes = auto_place(e, files)
+        b1, b2 = e["segments"][1]["broll"], e["segments"][2]["broll"]
+        self.assertEqual((b1["file"], b1["start"], b1["end"]), ("boss fight.mp4", 0.8, 4.8))   # from "bosses", the third word
+        self.assertEqual(b2["file"], "more/map-overview.mp4")
+        self.assertNotIn("broll", e["segments"][0])
+        self.assertNotIn("broll", e["segments"][3])
+        self.assertEqual(len(notes), 2)
+        self.assertIn("says 'bosses'", notes[0])
+
+    def test_common_words_name_nothing(self):
+        from nookcut.broll import auto_place
+        from nookcut.edit import seg
+        e = {"segments": [seg(k * 10, k * 10 + 5, "highlight") for k in range(5)]}
+        for k, sg in enumerate(e["segments"]):
+            sg["words"] = [[k * 10.0, k * 10.0 + 0.3, "you"], [k * 10.0 + 0.4, k * 10.0 + 0.7, "won"]]
+        self.assertEqual(auto_place(e, [{"file": "you-won.mp4"}]), [])   # "you" is stop-listed, "won" said 5 times
+
+    def test_wide_inset_stays_above_the_captions(self):
+        from nookcut import render as r
+        from unittest import mock
+        info = {"still": False, "duration": 5.0, "hdr": False, "matrix": None}
+        edit = {"broll_dir": self.dir}
+        s = {"broll": {"file": "boss fight.mp4", "layout": "inset", "main": "source"}}
+        with mock.patch.object(r.br, "_probe_one", return_value=info):
+            _, steps, _ = r._broll(edit, s, (1920, 1080, 0, 0), "60", 4.0, [], r._layout({"orientation": "wide"}))
+        y = int(steps.split("overlay=")[1].split(":")[1])
+        self.assertLess(y + 410 + 8, 930)                         # box bottom above the caption line
+
+    def test_cover_is_capped(self):
+        from nookcut.broll import auto_place
+        from nookcut.edit import seg
+        e = {"segments": [seg(k * 10, k * 10 + 5, "highlight") for k in range(6)]}
+        for k, sg in enumerate(e["segments"]):
+            sg["words"] = [[k * 10.0, k * 10.0 + 0.3, f"clip{k}"]]
+        notes = auto_place(e, [{"file": f"clip{k}.mp4"} for k in range(6)])
+        self.assertLessEqual(len(notes) * 4.0, 0.35 * 30 + 0.01)   # at most 35% of the video
+
+    def test_validation(self):
+        from nookcut.broll import check
+        self.assertEqual(check({"file": "pillar.png", "layout": "inset", "main": "source", "start": 0, "end": 2},
+                               self.dir, 3.0), [])
+        errs = check({"file": "../secret.mp4", "layout": "tiled", "start": 2, "end": 9}, self.dir, 3.0)
+        self.assertEqual(len(errs), 3)
+
+    def test_layouts_render_over_the_picture(self):
+        import tempfile
+        from unittest import mock
+        from nookcut import render as r
+        from nookcut.edit import seg
+        from nookcut.errors import InputError
+        edit = {"source": "in.mp4", "orientation": "vertical", "width": 1080, "height": 1920, "fps": "60",
+                "source_audio": "duck", "broll_dir": self.dir, "source_hdr": None}
+        info = {"still": False, "duration": 2.0, "hdr": False, "matrix": None}
+        for layout, main, expect in (("cover", "broll", ["[base][br]overlay=0:470"]),
+                                     ("split", "broll", ["[fg2]crop=540:900", "overlay=540:470"]),
+                                     ("inset", "source", ["pad=iw+8:ih+8"]),
+                                     ("inset", "broll", ["[fg2]scale=410:340"])):
+            s = seg(10, 14, "highlight")
+            s["broll"] = {"file": "boss fight.mp4", "layout": layout, "main": main, "start": 1.0, "end": 3.0}
+            cmds = []
+            with tempfile.TemporaryDirectory() as work, mock.patch.object(r, "run", lambda c, *a, **k: cmds.append(c)), \
+                    mock.patch.object(r.br, "_probe_one", return_value=info):
+                r._segment(edit, 0, s, work, "/x/Impact.ttf", None, 1920, 1080, look=r.color_plan(edit))
+            cmd = cmds[0]
+            graph = cmd[cmd.index("-filter_complex") + 1]
+            for piece in expect + ["enable='between(t,1.000,3.000)'", "[0:a:0]atempo"]:
+                self.assertIn(piece, graph, layout)
+            self.assertIn("-stream_loop", cmd)                     # a short clip loops through its window
+        s["broll"] = {"file": "pillar.png", "layout": "cover"}
+        with tempfile.TemporaryDirectory() as work, mock.patch.object(r, "run", lambda c, *a, **k: cmds.append(c)), \
+                mock.patch.object(r.br, "_probe_one", return_value={**info, "still": True}):
+            r._segment(edit, 0, s, work, "/x/Impact.ttf", None, 1920, 1080, look=r.color_plan(edit))
+        self.assertIn("-loop", cmds[-1])
+        self.assertIn("crop=1080:900:x='(iw-ow)*min(1", cmds[-1][cmds[-1].index("-filter_complex") + 1])  # drifts
+        hdr = {**edit, "source_hdr": {"transfer": "pq", "trc": "smpte2084"}, "hdr": "keep"}
+        with tempfile.TemporaryDirectory() as work, self.assertRaises(InputError):
+            r._segment(hdr, 0, s, work, "/x/Impact.ttf", None, 1920, 1080, look=r.color_plan(hdr))
+
+
 class FrameRate(unittest.TestCase):
     def test_output_rate_follows_the_source_family(self):
         from nookcut.edit import fps_value, output_fps

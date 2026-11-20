@@ -64,6 +64,7 @@ def _brief_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--subtitles", default="auto", help="word-by-word speech captions: auto | on | off")
     p.add_argument("--speech-language", default="auto", help="spoken language, e.g. en or es (auto detects)")
     p.add_argument("--fps", default="auto", help="output frame rate: auto (60, or 59.94/50 to match the source) | 60 | 30")
+    p.add_argument("--broll-dir", default="", help="folder of your own clips/pictures to show as B-roll")
     p.add_argument("--hdr", default="sdr", help="HDR sources: sdr (convert, plays everywhere) | keep (HDR10/HLG HEVC)")
 
 
@@ -73,7 +74,7 @@ def _brief(a) -> Brief:
                  platforms=a.platforms.split(","), orientation=a.orientation, max_duration=a.max_duration,
                  region=a.region, language=a.language, music=a.music, music_file=a.music_file,
                  source_audio=a.source_audio, online=a.online, subtitles=a.subtitles, key_moments=a.key_moments,
-                 speech_language=a.speech_language, hdr=a.hdr, fps=a.fps)
+                 speech_language=a.speech_language, hdr=a.hdr, fps=a.fps, broll_dir=a.broll_dir)
 
 
 def _fail(e: BaseException, verbose: bool) -> int:
@@ -160,6 +161,8 @@ def _main(argv: list[str] | None = None) -> int:
     fr = sub.add_parser("frames", help="a sheet of frames from the last render (or --source) to look at")
     fr.add_argument("project"); fr.add_argument("--at", action="append", default=[], help="a time, e.g. 1:30 (repeatable)")
     fr.add_argument("--count", type=int, default=8); fr.add_argument("--source", action="store_true")
+    bl = sub.add_parser("broll", help="list the project's B-roll files")
+    bl.add_argument("project")
     vr = sub.add_parser("verify", help="check the last render: size, length, loudness, black/frozen picture")
     vr.add_argument("project"); vr.add_argument("--video", default="")
     tr = sub.add_parser("transcript", help="what is said in the recording (after analyze)")
@@ -207,6 +210,11 @@ def _main(argv: list[str] | None = None) -> int:
         return _models(a)
     if a.cmd == "frames":
         print(pl.frame_sheet(a.project, a.at or None, a.source, a.count)["frames"])
+        return 0
+    if a.cmd == "broll":
+        for f in pl.broll_files(a.project):
+            kind = "picture" if f["still"] else f"{f['duration']:.1f} s"
+            print(f"  {f['file']:<40} {kind}")
         return 0
     if a.cmd == "verify":
         r = pl.verify_render(a.project, a.video or None)

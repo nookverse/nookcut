@@ -44,6 +44,7 @@ included), and writes a publish kit with titles, hashtags and region-aware posti
 - [Brief options](#brief-options)
 - [MCP tools](#mcp-tools)
 - [What a project folder contains](#what-a-project-folder-contains)
+- [B-roll](#b-roll)
 - [Captions in other languages](#captions-in-other-languages)
 - [Configuration](#configuration)
 - [Running it as a shared or remote server](#running-it-as-a-shared-or-remote-server)
@@ -182,6 +183,7 @@ Everything else:
 | `nookcut copy show PROJECT` | Other caption, title and hashtag options for a planned project |
 | `nookcut copy init LANG` | Starts a caption language pack to translate |
 | `nookcut transcript PROJECT [--start S] [--end S]` | What is said, with times |
+| `nookcut broll PROJECT` | Lists the project's B-roll files |
 | `nookcut verify PROJECT [--video FILE]` | Checks the last render (exit code 1 if something needs attention) |
 | `nookcut frames PROJECT [--at 1:30 ...] [--count 8] [--source]` | A frame sheet to look at |
 | `nookcut models list \| install [NAME] \| remove NAME` | Optional speech models (the only download NookCut makes) |
@@ -219,6 +221,7 @@ The same options work as CLI flags (`nookcut new` / `make`) and as arguments of 
 | `speech_language` (`--speech-language`) | `auto` | Spoken language for transcription, e.g. `en`, `es`, `hi` |
 | `hdr` (`--hdr`) | `sdr` | HDR recordings: `sdr` (converted, plays right everywhere) or `keep` (10-bit HDR10/HLG) |
 | `fps` (`--fps`) | `auto` | Output frame rate: `auto` (60, or 59.94/50 to match the source), `60`, `30` |
+| `broll_dir` (`--broll-dir`) | none | A folder of your own clips and pictures to show as [B-roll](#b-roll) |
 | `online` (`--online`) | off | The user allows the agent to research trends on the web |
 | `key_moments` (`--moment`) | none | Moments you know: `--moment "10:42=final blow"` (repeatable), or `["10:42=final blow"]` / `[{"t": 642.7, "label": "final blow"}]` for agents. A label with win, final, kill, victory or blow marks the win; on non-game videos the label becomes that moment's caption |
 
@@ -238,6 +241,7 @@ The same options work as CLI flags (`nookcut new` / `make`) and as arguments of 
 | `generate_music` | Composes the original score (or masters your own track) |
 | `render_video` | Renders the final video and checks it (see `verify_video`) |
 | `verify_video` | Checks a render: size, frame rate, length against the plan, colour, loudness, black or frozen picture, silence; plus one frame per segment as an image |
+| `list_broll` | Your B-roll files with their lengths, plus a picture of each |
 | `get_frames` | A labelled sheet of frames from the render or the source, at given times or spread evenly, for agents that can see images |
 | `export_resolve` | EDLs and a Lua script that rebuild the edit in DaVinci Resolve, plus `captions.srt` when there is speech |
 | `best_posting_times` | Estimated posting windows for a region, in your time zone |
@@ -267,6 +271,26 @@ my-short/
 ```
 
 Your source file is never modified.
+
+## B-roll
+
+Point `broll_dir` (`--broll-dir`) at a folder of your own clips and pictures (two levels deep; mp4,
+mov, mkv, webm, jpg, png...). NookCut never downloads any. B-roll shows over a segment's picture
+while its sound, captions and timing stay the same:
+
+| Layout | What it looks like |
+|---|---|
+| `cover` | The B-roll fills the picture while the speaker keeps talking |
+| `inset` | One picture full-size and the other in a framed corner box (`main`: `broll` or `source`) |
+| `split` | Side by side |
+
+With speech captions on, NookCut places it for you where the speaker names it: a clip called
+`boss-fight.mp4` shows for up to 4 seconds from the moment they say "boss". Each file is used once,
+the hook and end card stay on the speaker, and B-roll covers at most a third of the video. The plan
+lists every placement and why. Agents (or you, in `edit.json`) can place, move or remove it on any
+segment with `update_edit`. Short clips loop, pictures drift slowly so they look alive, and B-roll
+that is HDR or BT.601 is converted like the main recording. B-roll isn't in the DaVinci Resolve
+EDL yet (its times are in `markers.txt`), and it can't be used with `hdr: keep`.
 
 ## Captions in other languages
 

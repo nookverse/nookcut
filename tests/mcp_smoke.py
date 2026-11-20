@@ -30,7 +30,7 @@ async def exercise(session: ClientSession, clip: str | None, project: str | None
     print(f"  {len(tools)} tools, prompts={prompts}, resources={resources}")
     skill = await session.read_resource("nookcut://skill")
     assert "NookCut editor" in skill.contents[0].text
-    assert {"auto_edit", "suggest_copy", "get_transcript", "get_frames", "verify_video"} <= set(tools), tools
+    assert {"auto_edit", "suggest_copy", "get_transcript", "get_frames", "verify_video", "list_broll"} <= set(tools), tools
     assert not [t for t in tools if t.startswith("_")], tools
     prompt = await session.get_prompt("nookcut-editor", {"source": "x.mov", "title": "Test"})
     assert "Make a short from this brief" in prompt.messages[0].content.text
@@ -108,6 +108,8 @@ async def exercise(session: ClientSession, clip: str | None, project: str | None
     ver = await session.call_tool("verify_video", {"project_dir": project + "-auto"})
     assert not is_error(ver) and "image" in [c.type for c in ver.content], text(ver)
     print("  get_frames (render + source) and verify_video: images returned")
+    nob = await session.call_tool("list_broll", {"project_dir": project + "-auto"})
+    assert is_error(nob) and "B-roll folder" in text(nob), text(nob)
 
     # leave a render running and disconnect: the server must stop it
     await session.call_tool("render_video", {"project_dir": project, "wait": False})

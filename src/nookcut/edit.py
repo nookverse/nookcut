@@ -83,4 +83,9 @@ def validate(edit: dict, source_duration: float | None = None) -> list[str]:
             errors.append(f"segment {i}: speed {s['speed']} out of range 0.1..4")
         if source_duration and s["src_out"] > source_duration + 0.05:
             errors.append(f"segment {i}: src_out {s['src_out']} beyond source end {source_duration:.2f}")
+        if s.get("broll") and edit.get("hdr") == "keep" and edit.get("source_hdr"):
+            errors.append(f"segment {i}: B-roll can't be shown in HDR output yet (set hdr to sdr, or remove it)")
+        elif s.get("broll"):
+            from .broll import check
+            errors += [f"segment {i}: {e}" for e in check(s["broll"], edit.get("broll_dir", ""), seg_duration(s))]
     return errors

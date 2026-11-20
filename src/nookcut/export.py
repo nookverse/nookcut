@@ -126,6 +126,14 @@ def resolve_kit(edit: dict, kit_dir: str, render_path: str = "", music_path: str
         f.write(lua)
     out = {"kit": kit_dir, "lua": lua_path,
            "how_to_run": f'In Resolve: Workspace > Console > Lua, then: dofile("{os.path.abspath(lua_path)}")'}
+    if any(s.get("broll") for s in edit["segments"]):
+        out["note"] = ("B-roll isn't in the Resolve timeline yet: the EDL has the main recording only. Add the "
+                       "B-roll clips on track 2 by hand, at the times listed in markers.txt.")
+        with open(os.path.join(kit_dir, "markers.txt"), "a", encoding="utf-8") as f:
+            for start, _, s in timeline(edit):
+                if s.get("broll"):
+                    b = s["broll"]
+                    f.write(f"{start + float(b.get('start') or 0):.3f}\tPink\tB-roll {b['file']} ({b.get('layout', 'cover')})\n")
     if edit.get("subtitles"):
         from .subtitles import srt
         out["captions_srt"] = os.path.join(kit_dir, "captions.srt")

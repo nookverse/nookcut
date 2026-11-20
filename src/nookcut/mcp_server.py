@@ -38,6 +38,7 @@ from mcp.types import ToolAnnotations
 
 from . import __version__
 from . import edit as ed
+from . import qc
 from . import pipeline as pl
 from .agents import skill_body, skill_text
 from .brief import Brief
@@ -220,7 +221,7 @@ def check_environment() -> dict:
 
 def _brief(source, title, video_type, game, orientation, max_duration, region, language, music, music_file,
            source_audio, platforms, key_moments, online, subtitles="auto", speech_language="auto",
-           hdr="sdr", fps="auto") -> Brief:
+           hdr="sdr", fps="auto", broll_dir="") -> Brief:
     if not video_type:
         video_type = "gameplay" if game else "generic"
     return Brief(title=title, source=_path(source, must_exist=True), video_type=video_type, game=game,
@@ -228,7 +229,8 @@ def _brief(source, title, video_type, game, orientation, max_duration, region, l
                  music=music, music_file=_path(music_file, must_exist=bool(music_file)), source_audio=source_audio,
                  platforms=platforms or ["youtube_shorts", "tiktok", "instagram_reels"],
                  key_moments=key_moments or [], online=online, subtitles=subtitles,
-                 speech_language=speech_language or "auto", hdr=hdr or "sdr", fps=fps or "auto")
+                 speech_language=speech_language or "auto", hdr=hdr or "sdr", fps=fps or "auto",
+                 broll_dir=_path(broll_dir, must_exist=bool(broll_dir)))
 
 
 @_tool(annotations=WRITES)
@@ -237,7 +239,7 @@ def create_project(project_dir: str, source: str, title: str, video_type: str = 
                    language: str = "en", music: str = "ai", music_file: str = "", source_audio: str = "duck",
                    platforms: list[str] | str | None = None, key_moments: list[dict] | None = None,
                    online: bool = False, subtitles: str = "auto", speech_language: str = "auto",
-                   hdr: str = "sdr", fps: str = "auto") -> dict:
+                   hdr: str = "sdr", fps: str = "auto", broll_dir: str = "") -> dict:
     """Step 1. Save the brief into project_dir. video_type: gameplay|talking|sports|tutorial|generic
     (empty = gameplay if game is set). orientation: vertical|square|wide. music: ai|none|file.
     source_audio: keep|duck|mute. platforms: youtube_shorts, tiktok, instagram_reels, facebook_reels,
@@ -246,10 +248,11 @@ def create_project(project_dir: str, source: str, title: str, video_type: str = 
     model is installed). speech_language: auto or a code like en, es, hi. hdr (HDR sources only):
     sdr = convert to normal colour, plays right everywhere (default); keep = HDR10/HLG HEVC output,
     only when the user asks for HDR. fps: auto (60, matching 59.94/50 sources) | 60 | 30; high
-    frame rate sources (120 fps) give real-frame slow motion either way. Relay any warnings."""
+    frame rate sources (120 fps) give real-frame slow motion either way. broll_dir: a folder of the
+    user's own clips/pictures to show as B-roll (never downloaded). Relay any warnings."""
     _ready()
     b = _brief(source, title, video_type, game, orientation, max_duration, region, language, music, music_file,
-               source_audio, platforms, key_moments, online, subtitles, speech_language, hdr, fps)
+               source_audio, platforms, key_moments, online, subtitles, speech_language, hdr, fps, broll_dir)
     out = pl.new_project(_path(project_dir), b)
     out["next"] = "analyze_video (wait=false, then poll job_status)"
     return out
@@ -261,7 +264,7 @@ def auto_edit(source: str, title: str, project_dir: str = "", video_type: str = 
               language: str = "en", music: str = "ai", source_audio: str = "duck",
               platforms: list[str] | str | None = None, key_moments: list[dict] | None = None,
               file_name: str = "", subtitles: str = "auto", template: str = "", hdr: str = "sdr",
-              wait: bool = True) -> dict:
+              broll_dir: str = "", wait: bool = True) -> dict:
     """Make the finished short in ONE call, offline: analyze, plan, captions, original music,
     render, DaVinci Resolve files and publish kit. Only source and title are needed. Best path for
     small or local models. Speech is captioned word by word when a speech model is installed
@@ -270,7 +273,7 @@ def auto_edit(source: str, title: str, project_dir: str = "", video_type: str = 
     HDR10/HLG instead. Takes a few minutes; wait=false returns a job_id for job_status."""
     _ready()
     b = _brief(source, title, video_type, game, orientation, max_duration, region, language, music, "",
-               source_audio, platforms, key_moments, False, subtitles, hdr=hdr)
+               source_audio, platforms, key_moments, False, subtitles, hdr=hdr, broll_dir=broll_dir)
     project = _path(project_dir) or os.path.join(os.path.dirname(b.source),
                                                   pl.slug(title).lower() + "-nookcut")
 
@@ -339,7 +342,10 @@ def update_edit(project_dir: str, changes: list[dict], music_style: str = "") ->
     '|' in a caption forces a line break; keep vertical lines <= 16 characters. words are the
     speech captions as [[start, end, "word"], ...] in source seconds: fix a misheard word there,
     or set [] to hide speech captions on that segment. crop is the black-bar crop [x, y, w, h]
-    found by the analysis; set null to keep the bars. After moving src_in/src_out, words are
+    found by the analysis; set null to keep the bars. broll shows one of the user's B-roll files
+    over the picture: {"file": name from list_broll, "layout": "cover"|"inset"|"split",
+    "main": "broll"|"source" (inset: which is full-size), "start": s, "end": s (within the
+    segment's output time; end null = to its end), "in": s (where the clip starts)}; null removes it. After moving src_in/src_out, words are
     refilled from the transcript. music_style: taiko | pulse | cinematic."""
     project_dir_real = _path(project_dir, must_exist=True)
     path = pl.paths(project_dir_real)["edit"]
@@ -355,9 +361,10 @@ def update_edit(project_dir: str, changes: list[dict], music_style: str = "") ->
             segs.insert(c["insert_at"], ed.seg(s["src_in"], s["src_out"], s.get("kind", "highlight"),
                                                s.get("speed", 1.0), s.get("top", ""), s.get("bottom", ""),
                                                s.get("zoom", 1.0), s.get("hits"), s.get("impact")))
-            if "words" in s:
-                segs[c["insert_at"]]["words"] = s["words"]
-            else:
+            for extra in ("words", "crop", "broll"):   # seg() keeps only the basic fields
+                if extra in s:
+                    segs[c["insert_at"]][extra] = s[extra]
+            if "words" not in s:
                 pl.refill_words(project_dir_real, segs[c["insert_at"]])
         else:
             segs[c["i"]].update({k: v for k, v in c.items() if k != "i"})
@@ -416,6 +423,24 @@ def _sheet(path: str) -> Image:
     run(["ffmpeg", "-v", "error", "-y", "-i", path, "-vf", "scale='min(1600,iw)':-2", "-q:v", "4", small],
         step="shrinking the frame sheet")
     return Image(path=small)
+
+
+@_tool(annotations=READ_ONLY)
+def list_broll(project_dir: str, sheet: bool = True) -> list:
+    """The user's own B-roll files (the brief's broll_dir): name, clip or still, length. With
+    sheet=true also a labelled picture of each (first 24) so you can choose what fits. Put one on a
+    segment with update_edit {"i": n, "broll": {"file": name, ...}}. Never suggest downloading."""
+    p = _path(project_dir, must_exist=True)
+    files = pl.broll_files(p)
+    out = [json.dumps({"files": files, "next": "update_edit with a broll on the segments where they fit"})]
+    if sheet and files:
+        from .brief import Brief
+        folder = Brief.load(pl.paths(p)["brief"]).broll_dir
+        shown = files[:24]
+        path = qc.thumbnails([(os.path.join(folder, f["file"]), 0.0 if f["still"] else min(1.0, (f["duration"] or 0) / 2),
+                               f["file"]) for f in shown], os.path.join(p, "broll.jpg"))
+        out.insert(0, _sheet(path))
+    return out
 
 
 @_tool(annotations=READ_ONLY)

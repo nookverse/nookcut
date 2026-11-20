@@ -52,6 +52,7 @@ src/nookcut/
   edit.py        the edit.json contract (segments, kinds, validation)
   music.py       procedural score (taiko | pulse | cinematic), mastered with ffmpeg
   render.py      parallel per-segment render + concat + audio mix; preview contact sheet
+  broll.py       the user's B-roll folder: index, safe paths, keyword placement (cover/inset/split)
   qc.py          frame sheets (get_frames) and checks of a finished render (verify_video)
   export.py      CMX3600 EDLs, markers, Resolve Lua builder
   publish.py     region -> time zone/weekend, posting windows, publish kit

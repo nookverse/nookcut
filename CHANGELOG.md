@@ -27,6 +27,11 @@ All notable changes to this project are documented here. The format follows
 - Scene cuts: ffmpeg's `scdet` runs on a 10 fps copy in the same decode as the scan (cut times to
   0.1 s, no second decode). Cuts no longer count as action, and segment edges move onto a nearby cut
   so no segment opens or closes with a flash of another shot. The analysis reports `scene_cuts`.
+- B-roll from your own folder (`broll_dir`, `--broll-dir`): `cover`, `inset` (picture-in-picture,
+  either picture full-size) and `split` layouts over a segment's picture, for a time window inside
+  it. Placed automatically where the speaker names a clip (by file name), capped at a third of the
+  video; agents place it with `update_edit`. `list_broll` / `nookcut broll` list the files with a
+  picture of each. Paths can't leave the folder; short clips loop; pictures drift slowly.
 - Checks after every render (`verify_video`, `nookcut verify`): size, frame rate and length against
   the plan, colour tags, loudness, true peak, black or frozen picture and silence, plus one frame per
   segment. `auto_edit` and `render_video` include them.

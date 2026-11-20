@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import asdict, dataclass, field, fields
 
@@ -103,6 +104,7 @@ class Brief:
     speech_language: str = "auto"               # spoken language for transcription ("auto" detects it)
     hdr: str = "sdr"                            # HDR sources: sdr (tone-mapped, plays everywhere) | keep (HDR10/HLG)
     fps: str = "auto"                           # output frame rate: auto (60, or 59.94 for NTSC sources) | 60 | 30
+    broll_dir: str = ""                         # folder of the user's own clips/pictures to show as B-roll
 
     def __post_init__(self):
         self.video_type = canonical("video_type", self.video_type)
@@ -142,6 +144,8 @@ class Brief:
             raise ValueError(f"subtitles {self.subtitles!r} is unknown; use one of {', '.join(SUBTITLES)}")
         if self.hdr not in HDR_MODES:
             raise ValueError(f"hdr {self.hdr!r} is unknown; use one of {', '.join(HDR_MODES)}")
+        if self.broll_dir and not os.path.isdir(os.path.expanduser(self.broll_dir)):
+            raise ValueError(f"the B-roll folder {self.broll_dir!r} can't be found")
         if self.fps not in FPS_MODES:
             raise ValueError(f"fps {self.fps!r} is unknown; use one of {', '.join(FPS_MODES)}")
         if self.max_duration < 10:

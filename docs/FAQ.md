@@ -38,6 +38,13 @@ tool result also says what to do next.
 **Do I need an agent at all?**
 No. `nookcut make` does everything from the command line.
 
+**Can it add B-roll?**
+Yes, from your own files: set `broll_dir` to a folder of clips and pictures. With speech captions on,
+NookCut shows a clip where the speaker names it (by file name), for up to 4 seconds. You or your
+agent can place B-roll on any segment as `cover`, `inset` (picture-in-picture) or `split`. NookCut
+never downloads stock footage; if you allow your agent to go online, it can find free footage
+with its own tools, and you drop it into the folder.
+
 **Can my agent see the video?**
 If it can read images: `get_frames` returns a labelled sheet of frames from the render or the
 source, and `verify_video` returns one frame per segment. Every agent, including small local
