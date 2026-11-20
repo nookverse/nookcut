@@ -68,7 +68,7 @@ def _layout(edit: dict) -> dict:
 def color_plan(edit: dict, sdr_only: bool = False) -> dict:
     """How colour is handled: pre = filters right after decoding, args = options before -i,
     hdr = the HDR facts when the output stays HDR (else None, and the output is SDR bt709)."""
-    if "source_hdr" not in edit:  # planned by an older NookCut: look at the source now
+    if "source_hdr" not in edit:  # planned by an older NookCut (or a bare source): look at it now
         edit["source_hdr"] = hdr_of(edit["source"]) if edit.get("source") else None
     src = edit.get("source_hdr")
     if src and edit.get("hdr") == "keep" and not sdr_only:
@@ -296,16 +296,21 @@ def render(edit: dict, out_path: str, music_wav: str | None, hwaccel: str | None
         game, music_in = "0:a", 1
         if music_wav:
             cmd += ["-i", music_wav]
+        # every mix ends at the platforms' loudness (-14 LUFS) with true peaks under -2 dBTP; AAC adds
+        # about half a dB of overshoot, so the finished file stays under -1 dBTP
+        master = f"loudnorm=I={TARGET_LUFS}:TP=-2:LRA=11,aresample=48000"
         if has_src_audio and music_wav:
             game_vol = 1.0 if edit["source_audio"] == "keep" else 0.9
             mus_vol = 0.35 if edit["source_audio"] == "keep" else 0.6
-            cmd += ["-filter_complex", f"[{game}]volume={game_vol}[g];[{music_in}:a]volume={mus_vol}[m];"
-                    "[g][m]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.9[a]",
-                    "-map", "0:v", "-map", "[a]"]
+            audio = (f"[{game}]volume={game_vol}[g];[{music_in}:a]volume={mus_vol}[m];"
+                     f"[g][m]amix=inputs=2:duration=first:normalize=0,{master}[a]")
         elif music_wav:
-            cmd += ["-map", "0:v", "-map", f"{music_in}:a"]
+            audio = f"[{music_in}:a]{master}[a]"
+        elif has_src_audio:
+            audio = f"[{game}]{master}[a]"
         else:
-            cmd += ["-map", "0:v"] + (["-map", game] if has_src_audio else [])
+            audio = ""
+        cmd += ["-map", "0:v"] + (["-filter_complex", audio, "-map", "[a]"] if audio else [])
         cmd += ["-c:v", "copy", *(["-tag:v", "hvc1"] if look["hdr"] else []), *color.color_tags(look["hdr"]),
                 "-c:a", "aac", "-b:a", "320k", "-t", f"{total(edit):.3f}",
                 "-movflags", "+faststart", out_path]
@@ -321,6 +326,7 @@ def render(edit: dict, out_path: str, music_wav: str | None, hwaccel: str | None
 
 
 PREVIEW_MAX = 40
+TARGET_LUFS = -14   # where YouTube, TikTok and Instagram normalise short-form video
 
 
 def preview(edit: dict, out_png: str, task: Task | None = None) -> str:

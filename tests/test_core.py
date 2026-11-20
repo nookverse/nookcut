@@ -587,6 +587,39 @@ class Bars(unittest.TestCase):
         self.assertNotIn("crop", e["segments"][0])
 
 
+class Checks(unittest.TestCase):
+    def test_metadata_parsing(self):
+        from nookcut import qc
+        text = "lavfi.black_start=1.5\nlavfi.black_end=2.25\nlavfi.black_start=9.0\nlavfi.r128.I=-inf\nlavfi.r128.I=-14.2\n"
+        self.assertEqual(qc._pairs(text, "lavfi.black_start", "lavfi.black_end"), [[1.5, 2.25], [9.0, None]])
+        self.assertEqual(qc._metadata(text, "lavfi.r128.I"), [-14.2])          # -inf at the start is skipped
+        self.assertEqual(qc.spread(10, 4), [1.25, 3.75, 6.25, 8.75])
+
+    def test_verify_reports_what_a_viewer_would_notice(self):
+        from unittest import mock
+        from nookcut import qc
+        from nookcut.edit import seg
+        edit = {"width": 1080, "height": 1920, "fps": "60", "orientation": "vertical", "music": "ai",
+                "segments": [seg(0, 10, "highlight"), seg(20, 30, "end")]}
+        probe = {"format": {"duration": "20.0"}, "streams": [
+            {"codec_type": "video", "width": 1080, "height": 1920, "avg_frame_rate": "60/1", "codec_name": "h264",
+             "color_transfer": "bt709"}, {"codec_type": "audio"}]}
+        found = {"black": [[4.0, 5.2], [19.5, None]], "frozen": [], "lufs": -21.3, "true_peak": -0.4, "silent": []}
+        with mock.patch.object(qc, "_probe", return_value=probe), mock.patch.object(qc, "scan", return_value=found), \
+                mock.patch.object(qc, "frames", return_value="check.jpg") as grab:
+            out = qc.verify(edit, "out.mp4", "check.jpg")
+        self.assertFalse(out["ok"])
+        self.assertEqual(len(out["issues"]), 3)                  # black mid-video, too quiet, true peak
+        self.assertIn("4.0-5.2", out["issues"][0])               # the end card's fade-out isn't an issue
+        self.assertEqual(grab.call_args[0][2], [5.0, 15.0])      # one frame per segment, in the middle
+        probe["streams"][0]["color_transfer"] = "smpte2084"
+        with mock.patch.object(qc, "_probe", return_value=probe), \
+                mock.patch.object(qc, "scan", return_value={**found, "black": [], "lufs": -14, "true_peak": -2}), \
+                mock.patch.object(qc, "frames", return_value="check.jpg"):
+            self.assertEqual(qc.verify(edit, "out.mp4", "check.jpg")["issues"],
+                             ["colour is tagged smpte2084, expected bt709"])
+
+
 class FrameRate(unittest.TestCase):
     def test_output_rate_follows_the_source_family(self):
         from nookcut.edit import fps_value, output_fps

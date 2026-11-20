@@ -15,6 +15,8 @@
   nookcut copy init LANG     start a caption language pack (~/.nookcut/copy/LANG.json) to translate
   nookcut models list|install [NAME]|remove NAME   optional speech-to-text models (the only download)
   nookcut transcript PROJECT what is said in the recording, with times (after analyze)
+  nookcut frames PROJECT [--at 1:30 ...] [--count 8] [--source]   a frame sheet to look at
+  nookcut verify PROJECT [--video file.mp4]                       checks of the last render
   nookcut watch PROJECT    live progress of any job on PROJECT (also ones your agent started)
   nookcut cancel PROJECT   stop the job running on PROJECT and its ffmpeg processes
   nookcut service install|status|restart|connect|uninstall   one shared server for every agent session
@@ -155,6 +157,11 @@ def _main(argv: list[str] | None = None) -> int:
     cp.add_argument("action", choices=("show", "init")); cp.add_argument("target", help="project (show) or language (init)")
     md = sub.add_parser("models", help="optional local models (speech-to-text); the only thing NookCut downloads")
     md.add_argument("action", choices=("list", "install", "remove")); md.add_argument("name", nargs="?", default="")
+    fr = sub.add_parser("frames", help="a sheet of frames from the last render (or --source) to look at")
+    fr.add_argument("project"); fr.add_argument("--at", action="append", default=[], help="a time, e.g. 1:30 (repeatable)")
+    fr.add_argument("--count", type=int, default=8); fr.add_argument("--source", action="store_true")
+    vr = sub.add_parser("verify", help="check the last render: size, length, loudness, black/frozen picture")
+    vr.add_argument("project"); vr.add_argument("--video", default="")
     tr = sub.add_parser("transcript", help="what is said in the recording (after analyze)")
     tr.add_argument("project"); tr.add_argument("--start", type=float, default=0); tr.add_argument("--end", type=float, default=0)
     for name in ("analyze", "preview", "render"):
@@ -198,6 +205,13 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
     if a.cmd == "models":
         return _models(a)
+    if a.cmd == "frames":
+        print(pl.frame_sheet(a.project, a.at or None, a.source, a.count)["frames"])
+        return 0
+    if a.cmd == "verify":
+        r = pl.verify_render(a.project, a.video or None)
+        _print(r)
+        return 0 if r["ok"] else 1
     if a.cmd == "transcript":
         for x in pl.transcript(a.project, a.start, a.end)["sentences"]:
             print(f"{x['start']:8.2f}  {x['text']}")

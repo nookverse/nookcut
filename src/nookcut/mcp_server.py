@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import functools
 import hmac
+import json
 import os
 import threading
 import time
@@ -399,8 +400,44 @@ def render_video(project_dir: str, file_name: str = "", wait: bool = True) -> di
     file_name or your own. wait=false returns a job_id for job_status."""
     _ready()
     p = _path(project_dir, must_exist=True)
-    return _run("render_video", p, lambda t: {"video": os.path.abspath(pl.make_render(p, file_name or None, t)),
-                                              "next": "export_resolve, then write_publish_kit"}, wait)
+
+    def work(t):
+        video = pl.make_render(p, file_name or None, t)
+        checks = pl.verify_render(p, video, t)
+        return {"video": os.path.abspath(video), "checks": {k: checks[k] for k in ("ok", "issues", "facts", "frames")},
+                "next": ("fix the issues in checks first (tell the user), or " if checks["issues"] else "") +
+                        "verify_video to look at the frames, then export_resolve and write_publish_kit"}
+    return _run("render_video", p, work, wait)
+
+
+def _sheet(path: str) -> Image:
+    """A frame sheet, shrunk for the conversation (the full-size file stays on disk)."""
+    small = path[:-4] + "_small.jpg"
+    run(["ffmpeg", "-v", "error", "-y", "-i", path, "-vf", "scale='min(1600,iw)':-2", "-q:v", "4", small],
+        step="shrinking the frame sheet")
+    return Image(path=small)
+
+
+@_tool(annotations=READ_ONLY)
+def get_frames(project_dir: str, times: list[float | str] | None = None, source: bool = False, count: int = 8) -> list:
+    """Look at the video: a labelled grid of frames from the last render, or from the original
+    recording with source=true. times: seconds or "m:ss" in that file; empty = `count` frames spread
+    evenly (up to 24). Use it to check captions, crops and moments yourself; if you can't see
+    images, use verify_video's numbers instead."""
+    out = pl.frame_sheet(_path(project_dir, must_exist=True), times or None, source, count)
+    return [_sheet(out["frames"]), json.dumps(out)]
+
+
+@_tool(annotations=READ_ONLY)
+def verify_video(project_dir: str, video_path: str = "") -> list:
+    """Check a render (default: the last one): size, frame rate, length against the plan, colour,
+    loudness (LUFS, true peak), black or frozen picture and silence. issues lists what to fix or tell
+    the user; also returns one frame per segment as an image. render_video runs this already."""
+    p = _path(project_dir, must_exist=True)
+    out = pl.verify_render(p, _path(video_path) or None)
+    out["next"] = ("tell the user about each issue and offer a fix (update_edit, then render_video)"
+                   if out["issues"] else "all checks passed; look at the frames, then export_resolve")
+    return [_sheet(out["frames"]), json.dumps(out)]
 
 
 @_tool(annotations=WRITES)

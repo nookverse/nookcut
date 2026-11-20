@@ -114,6 +114,12 @@ claim. Keep it to the 3-5 most useful points.
 `generate_music` (skip if music is none) -> `render_video` with `file_name` from `suggest_copy` (or a
 keyword-rich one from research) -> `export_resolve` (pass the render path) so they can fine-tune in DaVinci Resolve.
 
+**Check before you hand over.** `render_video` (and `auto_edit`) return `checks`: if `issues` is not
+empty, tell the user each one and offer a fix. If you can see images, look at the frames too:
+`verify_video` gives one per segment, `get_frames` any times you want (`source: true` for the
+original). Check that captions fit, the crop shows the action, and nothing private is on screen.
+Never say the video is fine without having checked.
+
 **Long steps (analyze, render): keep the user informed.** Start them with `wait=false`, then poll
 `job_status` every few seconds and report `progress` in plain words ("Rendering 14/24 segments,
 62%, about 40 s left"). Tell the user once that they can also watch live in a terminal with

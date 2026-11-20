@@ -30,7 +30,7 @@ async def exercise(session: ClientSession, clip: str | None, project: str | None
     print(f"  {len(tools)} tools, prompts={prompts}, resources={resources}")
     skill = await session.read_resource("nookcut://skill")
     assert "NookCut editor" in skill.contents[0].text
-    assert {"auto_edit", "suggest_copy", "get_transcript"} <= set(tools), tools
+    assert {"auto_edit", "suggest_copy", "get_transcript", "get_frames", "verify_video"} <= set(tools), tools
     assert not [t for t in tools if t.startswith("_")], tools
     prompt = await session.get_prompt("nookcut-editor", {"source": "x.mov", "title": "Test"})
     assert "Make a short from this brief" in prompt.messages[0].content.text
@@ -99,6 +99,15 @@ async def exercise(session: ClientSession, clip: str | None, project: str | None
     auto = json.loads(text(auto))
     assert os.path.getsize(auto["video"]) > 0 and os.path.exists(auto["publish_kit"]), auto
     print(f"  auto_edit: {auto['summary']} -> {os.path.basename(auto['video'])}")
+    assert "checks" in auto and os.path.exists(auto["checks"]["frames"]), auto
+    print(f"  checks: ok={auto['checks']['ok']} {auto['checks']['facts']} {auto['checks']['issues']}")
+    seen = await session.call_tool("get_frames", {"project_dir": project + "-auto", "times": ["0:01", 3], "count": 2})
+    assert not is_error(seen) and "image" in [c.type for c in seen.content], text(seen)
+    src = await session.call_tool("get_frames", {"project_dir": project + "-auto", "source": True, "count": 4})
+    assert not is_error(src), text(src)
+    ver = await session.call_tool("verify_video", {"project_dir": project + "-auto"})
+    assert not is_error(ver) and "image" in [c.type for c in ver.content], text(ver)
+    print("  get_frames (render + source) and verify_video: images returned")
 
     # leave a render running and disconnect: the server must stop it
     await session.call_tool("render_video", {"project_dir": project, "wait": False})

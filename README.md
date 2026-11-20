@@ -182,6 +182,8 @@ Everything else:
 | `nookcut copy show PROJECT` | Other caption, title and hashtag options for a planned project |
 | `nookcut copy init LANG` | Starts a caption language pack to translate |
 | `nookcut transcript PROJECT [--start S] [--end S]` | What is said, with times |
+| `nookcut verify PROJECT [--video FILE]` | Checks the last render (exit code 1 if something needs attention) |
+| `nookcut frames PROJECT [--at 1:30 ...] [--count 8] [--source]` | A frame sheet to look at |
 | `nookcut models list \| install [NAME] \| remove NAME` | Optional speech models (the only download NookCut makes) |
 | `nookcut when REGION [--tz ZONE]` | Estimated posting windows, in your time zone |
 | `nookcut watch PROJECT` | Live progress of any job on that project, even one your agent started |
@@ -234,7 +236,9 @@ The same options work as CLI flags (`nookcut new` / `make`) and as arguments of 
 | `get_edit` / `update_edit` | Read or change segments, captions and the spoken words shown as captions |
 | `preview_plan` | A contact sheet image of every segment for approval |
 | `generate_music` | Composes the original score (or masters your own track) |
-| `render_video` | Renders the final video |
+| `render_video` | Renders the final video and checks it (see `verify_video`) |
+| `verify_video` | Checks a render: size, frame rate, length against the plan, colour, loudness, black or frozen picture, silence; plus one frame per segment as an image |
+| `get_frames` | A labelled sheet of frames from the render or the source, at given times or spread evenly, for agents that can see images |
 | `export_resolve` | EDLs and a Lua script that rebuild the edit in DaVinci Resolve, plus `captions.srt` when there is speech |
 | `best_posting_times` | Estimated posting windows for a region, in your time zone |
 | `write_publish_kit` | `publish_kit.md` with titles, description, hashtags and posting plan |
@@ -257,6 +261,8 @@ my-short/
   <name>.mp4         the finished video
   resolve/           EDLs per frame rate, markers, build_timeline.lua and captions.srt
   publish_kit.md     titles, description, hashtags, posting plan
+  check.jpg          one frame per segment of the last render (from the checks)
+  frames.jpg         the last frame sheet you asked for
   .nookcut/          job progress and lock (for nookcut watch and cancel; safe to delete when idle)
 ```
 
@@ -343,10 +349,15 @@ to the internet.
 5. **Music.** A score is synthesized from scratch (taiko, pulse or cinematic), with hits on the cuts,
    then mastered. It uses no samples or existing recordings, so there's no source track to match.
 6. **Render.** Segments render in parallel on your GPU when possible, then they're joined and mixed
-   with the music (the original sound is kept, ducked under it, or muted, as you chose). HDR sources
+   with the music (the original sound is kept, ducked under it, or muted, as you chose), and the
+   mix is normalised to -14 LUFS with true peaks under -1 dBTP. HDR sources
    are tone-mapped to SDR (on the Apple GPU when it can) or kept as HDR10/HLG. The frame rate
    follows the source's family, and slow motion uses real frames when the source has enough
    (120 fps), interpolating only when it doesn't.
+
+7. **Check.** Every render is checked against the plan: size, frame rate, length, colour tags,
+   loudness, black or frozen picture and silence, as plain numbers any agent can read, plus a sheet
+   with one frame per segment for agents that can see images.
 
 ## Privacy and security
 

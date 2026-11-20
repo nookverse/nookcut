@@ -38,6 +38,12 @@ tool result also says what to do next.
 **Do I need an agent at all?**
 No. `nookcut make` does everything from the command line.
 
+**Can my agent see the video?**
+If it can read images: `get_frames` returns a labelled sheet of frames from the render or the
+source, and `verify_video` returns one frame per segment. Every agent, including small local
+models that can't see, gets the checks as numbers after each render: size, frame rate, length,
+colour, loudness, true peak, black or frozen picture and silence.
+
 **My agent's tool calls time out on long renders.**
 Pass `wait=false` to `analyze_video`, `render_video` or `auto_edit`. You get a job id back; poll
 `job_status` for progress and use `cancel_job` to stop.

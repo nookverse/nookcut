@@ -27,6 +27,11 @@ All notable changes to this project are documented here. The format follows
 - Scene cuts: ffmpeg's `scdet` runs on a 10 fps copy in the same decode as the scan (cut times to
   0.1 s, no second decode). Cuts no longer count as action, and segment edges move onto a nearby cut
   so no segment opens or closes with a flash of another shot. The analysis reports `scene_cuts`.
+- Checks after every render (`verify_video`, `nookcut verify`): size, frame rate and length against
+  the plan, colour tags, loudness, true peak, black or frozen picture and silence, plus one frame per
+  segment. `auto_edit` and `render_video` include them.
+- `get_frames` / `nookcut frames`: a labelled frame sheet from the render or the source (HDR
+  sources tone-mapped), for agents that can see images.
 - Black bars: ffmpeg's `cropdetect` runs in the same scan; vertical and square videos cut off
   cinematic letterbox and 4:3 pillarbox bars so the picture fills the frame (subtitles inside a
   bar are kept). Only bars that hold through a segment and recur in the recording are cut; side
@@ -54,6 +59,9 @@ All notable changes to this project are documented here. The format follows
   used whenever the source has enough (about 3 times faster for that segment).
 - Dolby Vision profile 5 (no standard picture inside) is now refused with a clear message instead
   of rendering wrong colours.
+
+- The final mix had no loudness normalisation (a test render came out at -17.6 LUFS). It's now
+  normalised to -14 LUFS with true peaks under -1 dBTP after AAC encoding.
 
 ### Changed
 - Removed the brief's `spoilers` option, which nothing used (old brief files still load).

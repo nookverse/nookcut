@@ -10,6 +10,8 @@
   <name>.mp4        the render
   resolve/          EDLs + Lua builder for DaVinci Resolve
   publish_kit.md    titles, hashtags, posting plan
+  check.jpg         one frame per segment of the last render (verify)
+  frames.jpg        the last frame sheet asked for (get_frames)
 
 make_all() runs every step as one job (CLI `nookcut make`, MCP `auto_edit`), fully offline.
 """
@@ -26,6 +28,7 @@ from . import edit as ed
 from .brief import Brief
 from .export import resolve_kit
 from .music import compose
+from . import qc
 from .publish import write_kit
 from .render import preview, render
 from .story import add_speech, clear_of_cuts, crop_bars, plan
@@ -259,6 +262,50 @@ def _render(project: str, out_name: str | None, t: Task) -> str:
                   task=t)
 
 
+def latest_render(project: str) -> str:
+    """The newest video in the project folder (the last render)."""
+    videos = [os.path.join(project, f) for f in os.listdir(project) if f.lower().endswith(".mp4")]
+    if not videos:
+        raise InputError("This project has no rendered video yet.", "Run render_video (nookcut render) first.")
+    return max(videos, key=os.path.getmtime)
+
+
+def verify_render(project: str, video: str | None = None, task: Task | None = None) -> dict:
+    """Checks of a render against its edit, plus a sheet with one frame per segment."""
+    p = paths(project)
+    _need(p["edit"], "plan_edit (nookcut plan)", "edit plan")
+    video = video or latest_render(project)
+    out = qc.verify(ed.load(p["edit"]), video, os.path.join(project, "check.jpg"), task)
+    out["video"] = os.path.abspath(video)
+    return out
+
+
+def frame_sheet(project: str, times: list | None = None, source: bool = False, count: int = 8,
+                video: str | None = None, task: Task | None = None) -> dict:
+    """A labelled grid of frames from the last render (or the source, with source=True), at the given
+    times (seconds or "m:ss" in that file) or spread evenly."""
+    from .brief import seconds
+    from .render import color_plan
+    p = paths(project)
+    pre, args, tile = "", [], (480, 270)
+    if source:
+        _need(p["brief"], "create_project (nookcut new)", "brief")
+        video = Brief.load(p["brief"]).source
+        look = color_plan({"source": video}, sdr_only=True)   # HDR sources tone-mapped, as in the render
+        pre, args = look["pre"], look["args"]
+    else:
+        video = video or latest_render(project)
+        if os.path.exists(p["edit"]):
+            e = ed.load(p["edit"])
+            tile = qc.TILE.get(e.get("orientation"), tile)
+    info = qc._probe(video, task)
+    length = float(info.get("format", {}).get("duration") or 0)
+    marks = [min(length - 0.05, seconds(t)) for t in times] if times else qc.spread(length, count)
+    sheet = qc.frames(video, os.path.join(project, "frames.jpg"), marks, None, tile, pre, args, task)
+    return {"frames": os.path.abspath(sheet), "times": marks, "from": "source" if source else "render",
+            "video": os.path.abspath(video)}
+
+
 def make_resolve(project: str, render_path: str = "") -> dict:
     p = paths(project)
     edit = ed.load(p["edit"])
@@ -299,7 +346,7 @@ def make_kit(project: str, video: str, titles: list[str] | None = None, descript
 
 MAKE_STAGES = (("reading the source", 1), ("scanning the video", 6), ("measuring loudness", 2),
                ("detecting moments", 0.2), VOICE_STAGE, *SPEECH_STAGES, ("planning", 0.1), ("making music", 1), ("preparing", 0.3),
-               ("rendering segments", 10), ("mixing audio", 0.7), ("finishing", 0.2))
+               ("rendering segments", 10), ("mixing audio", 0.7), ("checking the video", 0.5), ("finishing", 0.2))
 
 
 def make_all(project: str, brief: Brief, template: str | None = None, out_name: str | None = None,
@@ -318,6 +365,8 @@ def make_all(project: str, brief: Brief, template: str | None = None, out_name: 
         if brief.music != "none":
             _music(project, None, t)
         video = _render(project, out_name or copy["file_name"], t)
+        t.begin("checking the video", note="size, length, loudness, black or frozen picture")
+        checks = verify_render(project, video, t)
         t.begin("finishing", note="DaVinci Resolve files and the publish kit")
         resolve = make_resolve(project, video)
         kit = make_kit(project, video)  # filled from the same offline library, with a source note
@@ -330,6 +379,8 @@ def make_all(project: str, brief: Brief, template: str | None = None, out_name: 
            "resolve": resolve, "length_s": view["length"], "template": view["template"],
            "summary": f"{view['length']:.0f} s {edit['orientation']} short: {story}, {music}.",
            "titles": copy["titles"][:3], "warnings": created["warnings"],
+           "checks": {"ok": checks["ok"], "issues": checks["issues"], "facts": checks["facts"],
+                      "frames": os.path.abspath(checks["frames"])},
            "speech_captions": "word by word" if edit.get("subtitles") else found["speech"].get("note", "none")}
     if copy.get("note"):
         out["note"] = copy["note"]
