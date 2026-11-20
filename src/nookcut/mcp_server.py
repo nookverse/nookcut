@@ -337,7 +337,8 @@ def update_edit(project_dir: str, changes: list[dict], music_style: str = "") ->
     speed, zoom, kind, words), {"i": index, "delete": true}, or {"insert_at": index, "segment": {...}}.
     '|' in a caption forces a line break; keep vertical lines <= 16 characters. words are the
     speech captions as [[start, end, "word"], ...] in source seconds: fix a misheard word there,
-    or set [] to hide speech captions on that segment. After moving src_in/src_out, words are
+    or set [] to hide speech captions on that segment. crop is the black-bar crop [x, y, w, h]
+    found by the analysis; set null to keep the bars. After moving src_in/src_out, words are
     refilled from the transcript. music_style: taiko | pulse | cinematic."""
     project_dir_real = _path(project_dir, must_exist=True)
     path = pl.paths(project_dir_real)["edit"]

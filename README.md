@@ -322,8 +322,9 @@ to the internet.
    vignette at the screen edges, motion and loudness. A fade to black after a red damage vignette is a
    **death**; the first long fade after the last death is the **win**; motion and loudness peaks are
    **highlights**. In the same decode, ffmpeg's `scdet` finds **scene cuts** (to 0.1 s): a cut doesn't
-   count as action, and no segment starts or ends with a few frames of another shot. Thresholds
-   live in `analyze.DEFAULTS`.
+   count as action, and no segment starts or ends with a few frames of another shot. `cropdetect`
+   finds **black bars** (cinematic letterbox, 4:3 pillarbox), which vertical and square videos cut
+   off so the picture fills the frame; wide videos keep them. Thresholds live in `analyze.DEFAULTS`.
 2. **Story templates.**
    - **comeback**: hook → death montage with a counter → "ATTEMPT #N" → best moments → slow-mo finisher → question
    - **victory**: a win without deaths

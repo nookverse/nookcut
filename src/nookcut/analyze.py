@@ -7,6 +7,7 @@ recording analyses in a minute or two with no Python dependencies:
   motion      mean abs difference to the previous sample
   loudness    RMS dBFS of the loudest audio track (None when the recording is silent)
   scenes      camera/shot cuts, from ffmpeg's scdet on a 10 fps copy in the same decode (+-0.1 s)
+  bars        black-bar boxes (letterbox/pillarbox) per sample, from ffmpeg's cropdetect, same decode
 
 Detectors turn signals into events:
   dark events  fades to black/red; classified 'death' when a red vignette precedes them
@@ -39,6 +40,9 @@ DEFAULTS = {
 }
 SCENE_RATE = 10                 # scdet looks at this many frames a second (cut times to 0.1 s)
 SCENE_MERGE = 0.4               # cuts closer than this are one transition (flashes, dissolves)
+BAR_MIN = 0.02                  # an edge band thinner than this share of the frame isn't a bar
+BAR_AGREE = 0.6                 # share of a segment's samples that must show the same bar
+BAR_RECUR = 0.2                 # share of the whole recording's samples that must show it too
 
 
 class _Frames:
@@ -49,6 +53,7 @@ class _Frames:
         self.edge = [(y * W + x) * 3 for y in range(H) for x in (0, 1, 2, W - 3, W - 2, W - 1)]
         self.bright, self.red, self.motion = [], [], []
         self.buf, self.prev, self.on_sample = bytearray(), None, on_sample
+        self.bars = None
 
     def feed(self, chunk: bytes) -> None:
         self.buf += chunk
@@ -70,31 +75,92 @@ class _Frames:
 def _decode(path: str, hwaccel: str | None, task: Task | None, on_sample=None,
             scene_threshold: float = DEFAULTS["scene_threshold"]) -> tuple[_Frames, list[float] | None]:
     """One decode: the 64x36 signal frames, and scene cuts (None when ffmpeg has no scdet)."""
-    scenes = has_filter("scdet")
-    fd, cuts_file = tempfile.mkstemp(prefix="nookcut_cuts_", suffix=".txt")
-    os.close(fd)
+    scenes, bars = has_filter("scdet"), has_filter("cropdetect")
+    files = []
+    for name in ("cuts", "bars"):
+        fd, p = tempfile.mkstemp(prefix=f"nookcut_{name}_", suffix=".txt")
+        os.close(fd)
+        files.append(p)
+    cuts_file, bars_file = files
     try:
         for accel in ([hwaccel, None] if hwaccel else [None]):
             frames = _Frames(on_sample)
             cmd = ["ffmpeg", "-v", "error"] + (["-hwaccel", accel] if accel else []) + ["-i", path, "-an"]
+            extra = []
             if scenes:
+                extra.append(f"fps={SCENE_RATE},scale=160:90,scdet=t={scene_threshold},"
+                             f"metadata=print:key=lavfi.scd.time:file={filter_quote(cuts_file)},nullsink")
+            if bars:
+                extra.append(f"fps={RATE},cropdetect=limit=0.094:round=2:reset=1:skip=0,"
+                             f"metadata=print:file={filter_quote(bars_file)},nullsink")
+            if extra:
+                labels = "".join(f"[x{k}]" for k in range(len(extra)))
                 cmd += ["-filter_complex",
-                        f"[0:v]split[a][b];[a]fps={RATE},scale={W}:{H}[s];[b]fps={SCENE_RATE},scale=160:90,"
-                        f"scdet=t={scene_threshold},metadata=print:key=lavfi.scd.time:file={filter_quote(cuts_file)},"
-                        "nullsink", "-map", "[s]"]
+                        f"[0:v]split={len(extra) + 1}[a]{labels};[a]fps={RATE},scale={W}:{H}[s];"
+                        + ";".join(f"[x{k}]{f}" for k, f in enumerate(extra)), "-map", "[s]"]
             else:
                 cmd += ["-vf", f"fps={RATE},scale={W}:{H}"]
             cmd += ["-f", "rawvideo", "-pix_fmt", "rgb24", "-"]
             try:
                 run(cmd, task, "scanning the video", on_chunk=frames.feed)
                 with open(cuts_file, encoding="utf-8") as f:
-                    return frames, merge_cuts(f.read()) if scenes else None
+                    cuts = merge_cuts(f.read()) if scenes else None
+                with open(bars_file, encoding="utf-8") as f:
+                    frames.bars = parse_bars(f.read()) if bars else None
+                return frames, cuts
             except MediaError:
                 if not accel:
                     raise
         raise AssertionError("unreachable")
     finally:
-        os.remove(cuts_file)
+        for p in files:
+            os.remove(p)
+
+
+def parse_bars(metadata: str) -> list[list]:
+    """cropdetect's printed values -> [[t, x, y, w, h], ...] (content box per sample; empty frames
+    such as all-black ones give no box)."""
+    out = []
+    for block in re.split(r"frame:\d+", metadata)[1:]:
+        t = re.search(r"pts_time:([0-9.]+)", block)
+        v = {k: int(x) for k, x in re.findall(r"lavfi\.cropdetect\.(w|h|x|y)=(-?\d+)", block)}
+        if t and len(v) == 4 and v["w"] > 0 and v["h"] > 0:
+            out.append([round(float(t.group(1)), 2), v["x"], v["y"], v["w"], v["h"]])
+    return out
+
+
+def content_box(bars: list[list] | None, a: float, b: float, width: int, height: int) -> list[int] | None:
+    """The picture inside black bars for the source range [a, b): [x, y, w, h], or None when there are
+    no bars to cut. Edges come from the union of the samples (never crops picture), and an edge is
+    only cut when most samples agree on it: a dark scene reports a smaller box, but bars don't move.
+    A bar must also recur across the recording (a dark wall in one shot doesn't), and side bars
+    must be symmetric, as pillarboxing is."""
+    samples = [s[1:] for s in bars or [] if a <= s[0] < b]
+    if not samples:
+        return None
+    top, left = min(s[1] for s in samples), min(s[0] for s in samples)
+    bottom = height - max(s[1] + s[3] for s in samples)
+    right = width - max(s[0] + s[2] for s in samples)
+
+    everywhere = [s[1:] for s in bars]
+
+    def agreed(edge: int, side, size: int) -> int:
+        if edge < BAR_MIN * size:
+            return 0
+        here = sum(abs(side(v) - edge) <= 0.01 * size for v in samples)
+        overall = sum(abs(side(v) - edge) <= 0.01 * size for v in everywhere)
+        return edge if here >= BAR_AGREE * len(samples) and overall >= BAR_RECUR * len(everywhere) else 0
+
+    top = agreed(top, lambda v: v[1], height)
+    bottom = agreed(bottom, lambda v: height - v[1] - v[3], height)
+    left = agreed(left, lambda v: v[0], width)
+    right = agreed(right, lambda v: width - v[0] - v[2], width)
+    if abs(left - right) > 0.01 * width:  # one dark side is scenery, not pillarboxing
+        left = right = 0
+    if not (top or bottom or left or right):
+        return None
+    w, h = (width - left - right) // 2 * 2, (height - top - bottom) // 2 * 2
+    return [left // 2 * 2, top // 2 * 2, w, h]
 
 
 def merge_cuts(metadata: str) -> list[float]:
@@ -145,7 +211,7 @@ def signals(path: str, hwaccel: str | None = None, task: Task | None = None) -> 
         task.begin("measuring loudness", dur, note=f"audio track {best['index'] + 1}")
         loud = _loudness(path, best["index"], len(frames.bright), task, lambda t: task.set(t))
     return {"info": info, "rate": RATE, "brightness": frames.bright, "redness": frames.red,
-            "motion": frames.motion, "loudness": loud, "scenes": scenes}
+            "motion": frames.motion, "loudness": loud, "scenes": scenes, "bars": frames.bars}
 
 
 def dark_events(sig: dict, params: dict) -> list[dict]:

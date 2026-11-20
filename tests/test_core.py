@@ -552,6 +552,41 @@ class Scenes(unittest.TestCase):
         self.assertGreater(plain, 0.5)
 
 
+class Bars(unittest.TestCase):
+    def test_letterbox_is_cut_and_dark_scenes_are_not(self):
+        from nookcut.analyze import content_box, parse_bars
+        W, H = 3840, 2160
+        box = lambda t, x, y, w, h: [t, x, y, w, h]
+        letterbox = [box(t / 2, 0, 264, 3840, 1632) for t in range(20)]
+        letterbox[3] = box(1.5, 900, 600, 1200, 900)              # a dark frame reports a small box
+        letterbox[5] = box(2.5, 0, 264, 3840, 1890)                # subtitles inside the bottom bar
+        self.assertEqual(content_box(letterbox, 0, 10, W, H), [0, 264, 3840, 1896])  # top cut, subtitles kept
+        wall = [box(t / 2, 400, 0, 3440, 2160) for t in range(20)]                   # a dark wall on one side
+        self.assertIsNone(content_box(wall, 0, 10, W, H))
+        pillar = [box(t / 2, 480, 0, 2880, 2160) for t in range(20)]                 # 4:3 inside 16:9
+        self.assertEqual(content_box(pillar, 0, 10, W, H), [480, 0, 2880, 2160])
+        once = [box(t / 2, 0, 0, 3840, 2160) for t in range(100)]                    # bars in one shot only
+        once[:10] = [box(t / 2, 0, 300, 3840, 1560) for t in range(10)]
+        self.assertIsNone(content_box(once, 0, 5, W, H))
+        thin = [box(t / 2, 0, 6, 3840, 2148) for t in range(20)]                     # 6 px is not a bar
+        self.assertIsNone(content_box(thin, 0, 10, W, H))
+        self.assertIsNone(content_box(letterbox, 50, 60, W, H))                      # no samples there
+        text = "frame:0 pts:0 pts_time:0\nlavfi.cropdetect.w=-3838\nlavfi.cropdetect.h=18\nlavfi.cropdetect.x=3840\n" \
+               "lavfi.cropdetect.y=2136\nframe:1 pts:1 pts_time:0.5\nlavfi.cropdetect.w=3840\nlavfi.cropdetect.h=1632\n" \
+               "lavfi.cropdetect.x=0\nlavfi.cropdetect.y=264\n"
+        self.assertEqual(parse_bars(text), [[0.5, 0, 264, 3840, 1632]])             # empty frame dropped
+
+    def test_wide_output_keeps_bars(self):
+        from nookcut.story import crop_bars
+        from nookcut.edit import seg
+        a = {"signals": {"bars": [[t / 2, 0, 264, 3840, 1632] for t in range(20)],
+                         "info": {"width": 3840, "height": 2160}}}
+        e = crop_bars({"orientation": "vertical", "segments": [seg(1, 5, "highlight")]}, a)
+        self.assertEqual(e["segments"][0]["crop"], [0, 264, 3840, 1632])
+        e = crop_bars({"orientation": "wide", "segments": [seg(1, 5, "highlight")]}, a)
+        self.assertNotIn("crop", e["segments"][0])
+
+
 class FrameRate(unittest.TestCase):
     def test_output_rate_follows_the_source_family(self):
         from nookcut.edit import fps_value, output_fps

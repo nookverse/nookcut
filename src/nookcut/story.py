@@ -15,13 +15,13 @@ from __future__ import annotations
 import re
 from bisect import bisect_left
 
-from .analyze import best_windows, peak_times
+from .analyze import best_windows, content_box, peak_times
 from .brief import Brief
 from .copywriting import Writer, caption_keys, wrap
 from .edit import output_fps, seg, total
 from .transcribe import caption_words, sentences, snap
 
-__all__ = ["add_speech", "choose_template", "clear_of_cuts", "plan", "wrap"]
+__all__ = ["add_speech", "choose_template", "clear_of_cuts", "crop_bars", "plan", "wrap"]
 
 
 def choose_template(brief: Brief, analysis: dict) -> str:
@@ -263,6 +263,21 @@ def plan(brief: Brief, analysis: dict, template: str | None = None, words: list[
                              "or use the 'highlights' template")
         return comeback(brief, analysis, template)
     return highlights(brief, analysis)
+
+
+def crop_bars(edit: dict, analysis: dict) -> dict:
+    """Mark each segment's black bars (cinematic letterbox, pillarbox) to cut off, for vertical and
+    square output, where bars waste the screen. Wide output keeps them: cropping a 2.39:1 picture
+    to 16:9 would cut its sides. update_edit with "crop": null keeps a segment's bars."""
+    bars = analysis["signals"].get("bars")
+    if not bars or edit.get("orientation") == "wide":
+        return edit
+    info = analysis["signals"]["info"]
+    for s in edit["segments"]:
+        box = content_box(bars, s["src_in"], s["src_out"], info["width"], info["height"])
+        if box:
+            s["crop"] = box
+    return edit
 
 
 SHOT_EDGE = 0.7   # a scene cut this close inside a segment's edge would flash the other shot

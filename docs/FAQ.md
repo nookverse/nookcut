@@ -137,6 +137,13 @@ them instead of inventing frames (sharper, and about 3 times faster to render). 
 family: 59.94 fps sources (PS5, Xbox, most cameras) give 59.94, 25/50 fps sources give 50. Use
 `--fps 30` for smaller files.
 
+**My cutscenes have black bars. Will they show in the short?**
+Not in vertical or square videos: NookCut detects the bars and cuts them off, so the picture fills
+the frame. Subtitles a game draws inside a bar are kept. It only cuts a bar that stays put through
+most of the segment and appears often in the recording, so a dark scene isn't mistaken for one.
+Wide (16:9) videos keep the bars, since cropping a cinematic picture to 16:9 would cut its sides.
+To keep the bars on a segment, set its `crop` to `null` with `update_edit`.
+
 **Does it use my GPU?**
 Yes, when it can. It test-encodes on NVIDIA, AMD, Intel or Apple hardware first and falls back to
 the CPU if none works or the GPU fails mid-render. `nookcut check` shows which encoder it picked.

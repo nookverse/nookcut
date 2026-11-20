@@ -103,7 +103,9 @@ claim. Keep it to the 3-5 most useful points.
    - end card: a question that invites comments
    - `music_style`: taiko (samurai, martial, historical), pulse (shooters, sci-fi, esports, tech),
      cinematic (bosses, fantasy, epic, sports)
-5. `preview_plan` returns the contact sheet as an image. Look at it and fix obviously bad picks
+5. Black bars (cinematic letterbox) are cut off automatically in vertical and square videos; if
+   the user wants the cinematic bars, set that segment's `crop` to null with `update_edit`.
+6. `preview_plan` returns the contact sheet as an image. Look at it and fix obviously bad picks
    (black frames, menus, loading screens) with `update_edit`. Then show the user the preview and
    the segment list and **get approval before rendering**.
 

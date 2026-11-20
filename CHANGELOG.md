@@ -27,6 +27,10 @@ All notable changes to this project are documented here. The format follows
 - Scene cuts: ffmpeg's `scdet` runs on a 10 fps copy in the same decode as the scan (cut times to
   0.1 s, no second decode). Cuts no longer count as action, and segment edges move onto a nearby cut
   so no segment opens or closes with a flash of another shot. The analysis reports `scene_cuts`.
+- Black bars: ffmpeg's `cropdetect` runs in the same scan; vertical and square videos cut off
+  cinematic letterbox and 4:3 pillarbox bars so the picture fills the frame (subtitles inside a
+  bar are kept). Only bars that hold through a segment and recur in the recording are cut; side
+  bars must be symmetric. Wide videos keep their bars. `update_edit` `crop: null` keeps them too.
 - `fps` option (`--fps auto|60|30`).
 - `--moment "10:42=final blow"` sets key moments from the CLI; agents may pass the same text form.
 - `CREDITS.md`: the open-source projects and models NookCut uses, with their licenses.

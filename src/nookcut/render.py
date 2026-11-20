@@ -135,6 +135,10 @@ def _segment(edit, i, s, work, font, hwaccel, src_w, src_h, task=None, on_progre
              look=None):
     look = look or color_plan(edit)
     hdr = look["hdr"]
+    pre = look["pre"]
+    if s.get("crop"):  # black bars cut off first, so the layout works with the picture itself
+        bx, by, src_w, src_h = s["crop"]
+        pre += f",crop={src_w}:{src_h}:{bx}:{by}"
     L = _layout(edit)
     enc = encoder_args(encoder, hdr=bool(hdr))
     dur = seg_duration(s)
@@ -160,9 +164,9 @@ def _segment(edit, i, s, work, font, hwaccel, src_w, src_h, task=None, on_progre
     if s["kind"] == "card":
         fg += ",eq=brightness=-0.25:saturation=0.6"
     if (fg_w, fg_h) == (W, H):
-        graph = f"[0:v]{look['pre']},setpts=(PTS-STARTPTS)/{s['speed']},fps={rate},{fg}"
+        graph = f"[0:v]{pre},setpts=(PTS-STARTPTS)/{s['speed']},fps={rate},{fg}"
     else:
-        graph = (f"[0:v]{look['pre']},setpts=(PTS-STARTPTS)/{s['speed']},fps={rate},split[a][b];"
+        graph = (f"[0:v]{pre},setpts=(PTS-STARTPTS)/{s['speed']},fps={rate},split[a][b];"
                  f"[a]scale={W // 4}:{H // 4}:force_original_aspect_ratio=increase,crop={W // 4}:{H // 4},"
                  f"gblur=sigma=10,scale={W}:{H},eq=brightness=-0.18:saturation=0.8[bg];[b]{fg}[fg];"
                  f"[bg][fg]overlay={x}:{y}" + (":format=yuv420p10" if hdr else ""))
@@ -338,7 +342,8 @@ def preview(edit: dict, out_png: str, task: Task | None = None) -> str:
             lp = os.path.join(work, f"l{i}.txt"); open(lp, "w", encoding="utf-8").write(label)
             cp = os.path.join(work, f"c{i}.txt"); open(cp, "w", encoding="utf-8").write(cap or " ")
             out = os.path.join(work, f"p{i:03d}.png")
-            vf = (f"{look['pre']},scale=480:270,drawtext=fontfile={_q(font)}:textfile={_q(lp)}:fontsize=18:fontcolor=yellow"
+            bars = f",crop={s['crop'][2]}:{s['crop'][3]}:{s['crop'][0]}:{s['crop'][1]}" if s.get("crop") else ""
+            vf = (f"{look['pre']}{bars},scale=480:270,drawtext=fontfile={_q(font)}:textfile={_q(lp)}:fontsize=18:fontcolor=yellow"
                   f":box=1:boxcolor=black@0.7:x=6:y=6,drawtext=fontfile={_q(font)}:textfile={_q(cp)}:fontsize=26"
                   f":fontcolor=white:borderw=3:bordercolor=black:x=(w-text_w)/2:y=h-40")
             run(["ffmpeg", "-v", "error", "-y", *look["args"], "-ss", f"{mid}", "-i", edit["source"], "-frames:v", "1",
