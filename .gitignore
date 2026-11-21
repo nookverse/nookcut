@@ -31,3 +31,6 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# your own paid packs and drafts (never published)
+/private/

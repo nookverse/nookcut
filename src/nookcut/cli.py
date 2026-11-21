@@ -67,6 +67,7 @@ def _brief_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--voiceover", default="off", help="off | captions (read the hook and end captions aloud)")
     p.add_argument("--voice", default="", help="voice name (nookcut voices); default: the best for the language")
     p.add_argument("--voice-speed", type=float, default=1.0)
+    p.add_argument("--copy-pack", default="", help="a caption/title style pack (nookcut copy packs)")
     p.add_argument("--broll-dir", default="", help="folder of your own clips/pictures to show as B-roll")
     p.add_argument("--hdr", default="sdr", help="HDR sources: sdr (convert, plays everywhere) | keep (HDR10/HLG HEVC)")
 
@@ -78,7 +79,7 @@ def _brief(a) -> Brief:
                  region=a.region, language=a.language, music=a.music, music_file=a.music_file,
                  source_audio=a.source_audio, online=a.online, subtitles=a.subtitles, key_moments=a.key_moments,
                  speech_language=a.speech_language, hdr=a.hdr, fps=a.fps, broll_dir=a.broll_dir,
-                 voiceover=a.voiceover, voice=a.voice, voice_speed=a.voice_speed)
+                 voiceover=a.voiceover, voice=a.voice, voice_speed=a.voice_speed, copy_pack=a.copy_pack)
 
 
 def _fail(e: BaseException, verbose: bool) -> int:
@@ -200,7 +201,8 @@ def _main(argv: list[str] | None = None) -> int:
         sc.add_argument(flag, default=default)
     sc.add_argument("--voice-speed", type=float, default=1.0)
     cp = sub.add_parser("copy", help="built-in offline captions, titles and hashtags")
-    cp.add_argument("action", choices=("show", "init")); cp.add_argument("target", help="project (show) or language (init)")
+    cp.add_argument("action", choices=("show", "init", "install", "packs"))
+    cp.add_argument("target", nargs="?", default="", help="project (show), language (init) or pack file (install)")
     md = sub.add_parser("models", help="optional local models (speech-to-text); the only thing NookCut downloads")
     md.add_argument("action", choices=("list", "install", "remove")); md.add_argument("name", nargs="?", default="")
     fr = sub.add_parser("frames", help="a sheet of frames from the last render (or --source) to look at")
@@ -250,6 +252,17 @@ def _main(argv: list[str] | None = None) -> int:
         return 0 if ok else 1
 
     if a.cmd == "copy":
+        if a.action == "packs":
+            from .copywriting import list_packs, packs_dir
+            for pk in list_packs():
+                print(f"  {pk['name']:<24} {pk['version']:<8} {pk['about']}")
+            print(f"(folder: {packs_dir()})")
+            return 0
+        if a.action == "install":
+            from .copywriting import install_pack
+            name = install_pack(a.target)
+            print(f"Installed the '{name}' pack. Use it with --copy-pack {name} (or copy_pack: \"{name}\").")
+            return 0
         if a.action == "init":
             from .copywriting import init_pack
             path = init_pack(a.target)

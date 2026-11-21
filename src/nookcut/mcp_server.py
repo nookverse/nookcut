@@ -223,7 +223,7 @@ def check_environment() -> dict:
 
 def _brief(source, title, video_type, game, orientation, max_duration, region, language, music, music_file,
            source_audio, platforms, key_moments, online, subtitles="auto", speech_language="auto",
-           hdr="sdr", fps="auto", broll_dir="", voiceover="off", voice="", voice_speed=1.0) -> Brief:
+           hdr="sdr", fps="auto", broll_dir="", voiceover="off", voice="", voice_speed=1.0, copy_pack="") -> Brief:
     if not video_type:
         video_type = "gameplay" if game else "generic"
     return Brief(title=title, source=_path(source, must_exist=True), video_type=video_type, game=game,
@@ -233,7 +233,7 @@ def _brief(source, title, video_type, game, orientation, max_duration, region, l
                  key_moments=key_moments or [], online=online, subtitles=subtitles,
                  speech_language=speech_language or "auto", hdr=hdr or "sdr", fps=fps or "auto",
                  broll_dir=_path(broll_dir, must_exist=bool(broll_dir)), voiceover=voiceover or "off",
-                 voice=voice or "", voice_speed=voice_speed or 1.0)
+                 voice=voice or "", voice_speed=voice_speed or 1.0, copy_pack=copy_pack or "")
 
 
 @_tool(annotations=WRITES)
@@ -243,7 +243,7 @@ def create_project(project_dir: str, source: str, title: str, video_type: str = 
                    platforms: list[str] | str | None = None, key_moments: list[dict] | None = None,
                    online: bool = False, subtitles: str = "auto", speech_language: str = "auto",
                    hdr: str = "sdr", fps: str = "auto", broll_dir: str = "", voiceover: str = "off",
-                   voice: str = "", voice_speed: float = 1.0) -> dict:
+                   voice: str = "", voice_speed: float = 1.0, copy_pack: str = "") -> dict:
     """Step 1. Save the brief into project_dir. video_type: gameplay|talking|sports|tutorial|generic
     (empty = gameplay if game is set). orientation: vertical|square|wide. music: ai|none|file.
     source_audio: keep|duck|mute. platforms: youtube_shorts, tiktok, instagram_reels, facebook_reels,
@@ -255,11 +255,12 @@ def create_project(project_dir: str, source: str, title: str, video_type: str = 
     frame rate sources (120 fps) give real-frame slow motion either way. broll_dir: a folder of the
     user's own clips/pictures to show as B-roll (never downloaded). voiceover: off | captions (the
     hook and end captions read aloud; write other lines yourself with update_edit "vo"). voice: a
-    name from list_voices (empty = the best for the language); voice_speed 0.7-1.5. Relay any warnings."""
+    name from list_voices (empty = the best for the language); voice_speed 0.7-1.5. copy_pack: a
+    caption/title style pack the user installed (suggest_copy lists the installed ones). Relay any warnings."""
     _ready()
     b = _brief(source, title, video_type, game, orientation, max_duration, region, language, music, music_file,
                source_audio, platforms, key_moments, online, subtitles, speech_language, hdr, fps, broll_dir,
-               voiceover, voice, voice_speed)
+               voiceover, voice, voice_speed, copy_pack)
     out = pl.new_project(_path(project_dir), b)
     out["next"] = "analyze_video (wait=false, then poll job_status)"
     return out
@@ -271,7 +272,8 @@ def auto_edit(source: str, title: str, project_dir: str = "", video_type: str = 
               language: str = "en", music: str = "ai", source_audio: str = "duck",
               platforms: list[str] | str | None = None, key_moments: list[dict] | None = None,
               file_name: str = "", subtitles: str = "auto", template: str = "", hdr: str = "sdr",
-              broll_dir: str = "", voiceover: str = "off", voice: str = "", wait: bool = True) -> dict:
+              broll_dir: str = "", voiceover: str = "off", voice: str = "", copy_pack: str = "",
+              wait: bool = True) -> dict:
     """Make the finished short in ONE call, offline: analyze, plan, captions, original music,
     render, DaVinci Resolve files and publish kit. Only source and title are needed. Best path for
     small or local models. Speech is captioned word by word when a speech model is installed
@@ -281,7 +283,7 @@ def auto_edit(source: str, title: str, project_dir: str = "", video_type: str = 
     _ready()
     b = _brief(source, title, video_type, game, orientation, max_duration, region, language, music, "",
                source_audio, platforms, key_moments, False, subtitles, hdr=hdr, broll_dir=broll_dir,
-               voiceover=voiceover, voice=voice)
+               voiceover=voiceover, voice=voice, copy_pack=copy_pack)
     project = _path(project_dir) or os.path.join(os.path.dirname(b.source),
                                                   pl.slug(title).lower() + "-nookcut")
 
@@ -298,7 +300,7 @@ def auto_edit(source: str, title: str, project_dir: str = "", video_type: str = 
 def script_to_video(script: str, title: str, project_dir: str = "", broll_dir: str = "",
                     orientation: str = "vertical", language: str = "en", voice: str = "", voice_speed: float = 1.0,
                     music: str = "ai", region: str = "", platforms: list[str] | str | None = None,
-                    video_type: str = "generic", file_name: str = "", wait: bool = True) -> dict:
+                    video_type: str = "generic", file_name: str = "", copy_pack: str = "", wait: bool = True) -> dict:
     """Make a video from a script, offline: each line is narrated (list_voices), shown over the
     user's own B-roll from broll_dir (a clip named after a word in the line first) or a moving
     background, with word captions, original music, checks, Resolve files and a publish kit.
@@ -308,7 +310,8 @@ def script_to_video(script: str, title: str, project_dir: str = "", broll_dir: s
     b = Brief(title=title, source="", video_type=video_type or "generic", orientation=orientation,
               region=region, language=language or "en", music=music,
               platforms=platforms or ["youtube_shorts", "tiktok", "instagram_reels"],
-              broll_dir=_path(broll_dir, must_exist=bool(broll_dir)), voice=voice or "", voice_speed=voice_speed or 1.0)
+              broll_dir=_path(broll_dir, must_exist=bool(broll_dir)), voice=voice or "", voice_speed=voice_speed or 1.0,
+              copy_pack=copy_pack or "")
     project = _path(project_dir) or _path(os.path.join(os.path.expanduser("~/NookCut"), pl.slug(title).lower()))
 
     def work(t):
@@ -325,6 +328,8 @@ def suggest_copy(project_dir: str, count: int = 5) -> dict:
     """Offline caption options for each segment, plus titles, a description, hashtags and a file
     name, from NookCut's built-in library (no internet). Apply picks with update_edit."""
     out = pl.suggest_copy(_path(project_dir, must_exist=True), count)
+    from .copywriting import list_packs
+    out["installed_packs"] = [p_["name"] for p_ in list_packs()]
     out["next"] = ("Apply chosen captions with update_edit ({'i': n, 'top': ...}), then preview_plan; use "
                    "titles/description/hashtags in write_publish_kit.")
     return out

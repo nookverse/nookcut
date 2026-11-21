@@ -190,6 +190,7 @@ Everything else:
 | `nookcut check` | Checks ffmpeg, fonts, GPU, speech-to-text and HDR support, with install hints |
 | `nookcut copy show PROJECT` | Other caption, title and hashtag options for a planned project |
 | `nookcut copy init LANG` | Starts a caption language pack to translate |
+| `nookcut copy install FILE` / `nookcut copy packs` | Installs or lists caption and title style packs |
 | `nookcut transcript PROJECT [--start S] [--end S]` | What is said, with times |
 | `nookcut voices [--language en]` | Voices that can speak voiceover lines |
 | `nookcut config show \| set KEY VALUE \| unset KEY \| kokoro` | The settings file; `kokoro` sets up a natural voice |
@@ -234,6 +235,7 @@ The same options work as CLI flags (`nookcut new` / `make`) and as arguments of 
 | `voiceover` (`--voiceover`) | `off` | `captions` reads the hook and end captions aloud; agents add their own lines ([Voiceover](#voiceover)) |
 | `voice` (`--voice`) | best for the language | A voice from `nookcut voices` / `list_voices` |
 | `voice_speed` (`--voice-speed`) | `1.0` | 0.7 to 1.5 |
+| `copy_pack` (`--copy-pack`) | none | A caption and title [style pack](#captions-in-other-languages) you installed |
 | `broll_dir` (`--broll-dir`) | none | A folder of your own clips and pictures to show as [B-roll](#b-roll) |
 | `online` (`--online`) | off | The user allows the agent to research trends on the web |
 | `key_moments` (`--moment`) | none | Moments you know: `--moment "10:42=final blow"` (repeatable), or `["10:42=final blow"]` / `[{"t": 642.7, "label": "final blow"}]` for agents. A label with win, final, kill, victory or blow marks the win; on non-game videos the label becomes that moment's caption |
@@ -352,6 +354,18 @@ nookcut copy init bn               # writes ~/.nookcut/copy/bn.json, a copy of t
 
 Translate the values (keep the keys and `{slots}`), then set the project's `language` to `bn`. Keys
 you leave out fall back to English. Packs are plain JSON, so they work offline too.
+
+**Style packs** change the voice of the captions and titles for a niche (boss fights, podcasts,
+sports...) on top of the language. Install one and pick it per project:
+
+```bash
+nookcut copy install souls-like.json   # checked first: known sections and {slots} only
+nookcut copy packs                     # what's installed
+nookcut make ... --copy-pack souls-like
+```
+
+A pack only overrides the keys it has; everything else comes from the language pack. The format is
+the same as `copydata/en.json`, with optional `name`, `version`, `author` and `license` fields.
 
 ## Configuration
 

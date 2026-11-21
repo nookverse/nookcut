@@ -890,6 +890,31 @@ class Script(unittest.TestCase):
                     step()
 
 
+class StylePacks(unittest.TestCase):
+    def test_packs_are_checked_installed_and_used(self):
+        import json, os, tempfile
+        from unittest import mock
+        from nookcut import copywriting as cw
+        self.assertEqual(cw.check_pack(cw._read(os.path.join(cw.BUILTIN, "en.json"))), [])   # slot list complete
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"NOOKCUT_COPY_DIR": d}):
+            good = os.path.join(d, "mine.json")
+            with open(good, "w") as f:
+                json.dump({"name": "Boss Fights!", "version": "1", "captions": {"hook.comeback": ["{n} DEATHS|FOR THIS"]},
+                           "titles": {"comeback": ["{title} after {n} deaths"]}}, f)
+            self.assertEqual(cw.install_pack(good), "boss-fights")
+            self.assertEqual([p["name"] for p in cw.list_packs()], ["boss-fights"])
+            data, code, note = cw.load("en", "boss-fights")
+            self.assertEqual(data["captions"]["hook.comeback"], ["{n} DEATHS|FOR THIS"])    # the pack's keys win
+            self.assertIn("death.top", data["captions"])                                     # the rest stays
+            self.assertEqual((code, note), ("en", ""))
+            self.assertIn("isn't installed", cw.load("en", "nope")[2])
+            bad = os.path.join(d, "bad.json")
+            with open(bad, "w") as f:
+                json.dump({"captions": {"hook.x": ["{player}"]}, "extra": 1}, f)
+            with self.assertRaises(ValueError):
+                cw.install_pack(bad)
+
+
 class FrameRate(unittest.TestCase):
     def test_output_rate_follows_the_source_family(self):
         from nookcut.edit import fps_value, output_fps

@@ -4,6 +4,10 @@ The words live in language packs (`copydata/<lang>.json`, English built in). A u
 override a pack in ~/.nookcut/copy/<lang>.json (or $NOOKCUT_COPY_DIR); `nookcut copy init <lang>`
 starts one from the English pack. Packs may be partial: missing keys fall back to English.
 
+Named packs (`nookcut copy install FILE`, then the brief's `copy_pack`) add a style on top, such as
+"souls-like" or "podcast": they override only the keys they define. They live in
+~/.nookcut/copy/packs/<name>.json and are checked before install (known sections, known slots).
+
 Choices are seeded by the project (source + title), so re-planning gives the same words, and
 `suggest()` lists the alternatives. Web research by the agent, when the user allows it, can replace
 any of this; nothing here needs it.
@@ -48,8 +52,9 @@ def _read(path: str) -> dict:
         return json.load(f)
 
 
-def load(lang: str = "en") -> tuple[dict, str, str]:
-    """(pack, language code actually used, note for the user or '')."""
+def load(lang: str = "en", pack: str = "") -> tuple[dict, str, str]:
+    """(pack, language code actually used, note for the user or ''). `pack` is a named style pack
+    laid over the language."""
     code = language_code(lang)
     data = _read(os.path.join(BUILTIN, "en.json"))
     found = code == "en"
@@ -57,10 +62,87 @@ def load(lang: str = "en") -> tuple[dict, str, str]:
                  os.path.join(user_dir(), f"{code}.json")):
         if path and os.path.isfile(path):
             data, found = _merge(data, _read(path)), True
-    if found:
-        return data, code, ""
-    return data, "en", (f"No '{code}' caption pack is installed, so the built-in copy is English. Translate it "
-                        f"yourself, or the user can make a pack with `nookcut copy init {code}`.")
+    note = "" if found else (f"No '{code}' caption pack is installed, so the built-in copy is English. Translate it "
+                             f"yourself, or the user can make a pack with `nookcut copy init {code}`.")
+    if pack:
+        path = os.path.join(packs_dir(), f"{pack_name(pack)}.json")
+        if os.path.isfile(path):
+            style = {k: v for k, v in _read(path).items() if k in SECTIONS}
+            data = _merge(data, style)
+        else:
+            note = (note + " " if note else "") + (f"The '{pack}' caption pack isn't installed, so the built-in "
+                                                   "copy is used. Install it with `nookcut copy install FILE`.")
+    return data, code if found else "en", note
+
+
+SECTIONS = ("captions", "titles", "description", "cta", "hashtags")
+META = ("_about", "name", "version", "language", "author", "license", "url")
+SLOTS = {"title", "game", "n", "n1", "i", "secs", "label", "gameplay"}
+
+
+def packs_dir() -> str:
+    return os.path.join(user_dir(), "packs")
+
+
+def pack_name(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")[:40]
+
+
+def check_pack(data: dict) -> list[str]:
+    """Problems that would stop a pack from working (an empty list means it's fine)."""
+    errors = []
+    if not isinstance(data, dict):
+        return ["a pack is a JSON object"]
+    for key in data:
+        if key not in SECTIONS + META:
+            errors.append(f"unknown section '{key}' (use {', '.join(SECTIONS)})")
+    if not any(k in data for k in SECTIONS):
+        errors.append("the pack has no captions, titles, description, cta or hashtags")
+    for section in SECTIONS:
+        for key, value in (data.get(section) or {}).items():
+            items = value if isinstance(value, list) else None
+            if section == "hashtags" and isinstance(value, dict):
+                items = [x for v in value.values() for x in (v if isinstance(v, list) else [v])]
+            if not items or not all(isinstance(x, str) for x in items):
+                errors.append(f"{section}.{key} must be a list of text")
+                continue
+            for text in items:
+                for slot in _SLOT.findall(text):
+                    if slot.lower() not in SLOTS:
+                        errors.append(f"{section}.{key}: unknown slot {{{slot}}} (use {', '.join(sorted(SLOTS))})")
+    return errors
+
+
+def install_pack(path: str) -> str:
+    """Check a pack file and copy it into the packs folder; returns its name."""
+    try:
+        data = _read(path)
+    except (OSError, ValueError) as e:
+        raise ValueError(f"{path} isn't a readable JSON pack: {e}") from None
+    problems = check_pack(data)
+    if problems:
+        raise ValueError("The pack can't be used: " + "; ".join(problems[:5]))
+    name = pack_name(data.get("name") or os.path.splitext(os.path.basename(path))[0])
+    if not name:
+        raise ValueError("The pack needs a name.")
+    os.makedirs(packs_dir(), exist_ok=True)
+    with open(os.path.join(packs_dir(), f"{name}.json"), "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=1)
+    return name
+
+
+def list_packs() -> list[dict]:
+    out = []
+    if os.path.isdir(packs_dir()):
+        for f in sorted(os.listdir(packs_dir())):
+            if f.endswith(".json"):
+                try:
+                    d = _read(os.path.join(packs_dir(), f))
+                except (OSError, ValueError):
+                    continue
+                out.append({"name": f[:-5], "version": d.get("version", ""), "about": d.get("_about", ""),
+                            "author": d.get("author", "")})
+    return out
 
 
 def init_pack(lang: str) -> str:
@@ -177,7 +259,7 @@ class Writer:
     """Default captions for one project, used by the story templates."""
 
     def __init__(self, brief, analysis: dict | None, width: int):
-        self.data, self.language, self.note = load(brief.language)
+        self.data, self.language, self.note = load(brief.language, getattr(brief, "copy_pack", ""))
         self.slots, self.width = slots(brief, analysis), width
         self.seed = f"{brief.source}|{brief.title}"
 
@@ -259,7 +341,7 @@ def _sentence(caption: str) -> str:
 
 def suggest(brief, analysis: dict | None, edit: dict, count: int = 5) -> dict:
     """Offline alternatives for every caption, plus titles, a description, hashtags and a file name."""
-    data, code, note = load(brief.language)
+    data, code, note = load(brief.language, getattr(brief, "copy_pack", ""))
     template = edit.get("template", "highlights")
     vt = edit.get("video_type") or brief.video_type
     width = 16 if edit.get("orientation") == "vertical" else 26

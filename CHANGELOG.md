@@ -27,6 +27,9 @@ All notable changes to this project are documented here. The format follows
 - Scene cuts: ffmpeg's `scdet` runs on a 10 fps copy in the same decode as the scan (cut times to
   0.1 s, no second decode). Cuts no longer count as action, and segment edges move onto a nearby cut
   so no segment opens or closes with a flash of another shot. The analysis reports `scene_cuts`.
+- Style packs: named caption/title/hashtag packs for a niche, laid over the language pack
+  (`nookcut copy install FILE`, `nookcut copy packs`, `copy_pack` / `--copy-pack`). Packs are
+  checked before install (known sections, known `{slots}`); `suggest_copy` lists installed ones.
 - Script to video (`script_to_video`, `nookcut script`): each line of the user's script narrated
   offline, joined with short pauses, over a generated moving background that becomes the project's
   "recording", with an exact transcript (word captions, `captions.srt`, `get_transcript`). One

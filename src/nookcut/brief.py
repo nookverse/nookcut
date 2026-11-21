@@ -110,6 +110,7 @@ class Brief:
     voiceover: str = "off"                      # off | captions (read the hook and end captions aloud); agents add lines
     voice: str = ""                             # voice name (list_voices); empty = the best one for the language
     voice_speed: float = 1.0                    # 0.7-1.5
+    copy_pack: str = ""                         # a named caption/title style pack (nookcut copy packs)
     made_from: str = ""                         # "script" when the video was made from a script (script_to_video)
 
     def __post_init__(self):
