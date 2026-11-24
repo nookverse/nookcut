@@ -40,6 +40,24 @@ class Detection(unittest.TestCase):
         self.assertAlmostEqual(a["gameplay"]["win"]["onset"], 400, delta=1)
         self.assertAlmostEqual(a["gameplay"]["final_attempt"]["start"], 303, delta=2)
 
+    def test_summary_caps_long_lists(self):
+        from nookcut.analyze import SUMMARY_LIST, summary
+        a = fake_analysis()
+        a["signals"]["info"] = {"duration": 9000.0, "width": 1280, "height": 720, "fps": 30.0}
+        s = summary(a)
+        self.assertEqual(s["deaths"]["count"], 3)
+        self.assertEqual(len(s["deaths"]["at"]), 3)
+        self.assertNotIn("note", s["deaths"])
+        many = [{"onset": float(i), "start": float(i), "end": i + 0.5, "red_pre": i % 7, "kind": "death"}
+                for i in range(170)]
+        a["gameplay"]["deaths"], a["events"] = many, many
+        s = summary(a)
+        self.assertEqual(s["deaths"]["count"], 170)
+        self.assertEqual(len(s["deaths"]["at"]), SUMMARY_LIST)
+        self.assertEqual(s["deaths"]["at"], sorted(s["deaths"]["at"]))
+        self.assertIn("analysis.json", s["deaths"]["note"])
+        self.assertEqual(s["fades"]["count"], 0)
+
 
 class Story(unittest.TestCase):
     def brief(self, **kw):
@@ -224,6 +242,18 @@ class Speech(unittest.TestCase):
         split = "\n".join(f'{{"start":{i * 100},"end":{i * 100 + 90},"text":"{w}"}}'
                           for i, w in enumerate(["*fangirling", "loud", "noises*", "Hello", "there."]))
         self.assertEqual([w[2] for w in parse(split)], ["Hello", "there."])
+
+    def test_parse_survives_broken_utf8(self):
+        from nookcut.transcribe import parse
+        line = lambda t0, text: (b'{"start":%d,"end":%d,"text":"' % (t0, t0 + 90)) + text + b'"}'
+        raw = b"\n".join([
+            line(0, b" Don\xe2\x80"),     # "Don’t" with the apostrophe split over two words
+            line(100, b"\x99t"),
+            line(200, b" go\x99"),        # a stray byte that makes no character
+            line(300, "감사합니다".encode()[:4]),   # a Korean character split in half
+            line(400, "감사합니다".encode()[4:]),
+        ])
+        self.assertEqual(parse(raw), [[0.0, 0.19, "Don’t"], [0.2, 0.29, "go"], [0.3, 0.49, "감사합니다"]])
 
     def test_stray_words_are_not_captioned(self):
         from nookcut.transcribe import caption_words

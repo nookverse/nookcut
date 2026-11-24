@@ -332,18 +332,31 @@ def analyze(path: str, out_json: str | None = None, params: dict | None = None,
     return result
 
 
+SUMMARY_LIST = 20   # longer lists stay in analysis.json, so a long stream doesn't flood the agent
+
+
+def _listed(events: list[dict], key) -> dict:
+    """{count, at: [...]}: every onset when few, else the SUMMARY_LIST strongest (by `key`), in time order."""
+    top = sorted(events, key=key, reverse=True)[:SUMMARY_LIST]
+    out = {"count": len(events), "at": sorted(e["onset"] for e in top)}
+    if len(events) > SUMMARY_LIST:
+        out["note"] = f"the {SUMMARY_LIST} strongest; all {len(events)} are in analysis.json"
+    return out
+
+
 def summary(result: dict) -> dict:
-    """Small, human/agent-readable view of an analysis (no raw signal arrays)."""
+    """Small, human/agent-readable view of an analysis (no raw signal arrays, lists capped)."""
     g = result["gameplay"]
     info = result["signals"]["info"]
+    cuts = [e for e in result["events"] if e["kind"] == "cut"]
     return {
         "duration": round(info["duration"], 1),
         "resolution": f'{info["width"]}x{info["height"]}@{info["fps"]:.2f}',
         "audio": "silent" if result["signals"]["loudness"] is None else "has sound",
-        "deaths": [d["onset"] for d in g["deaths"]],
+        "deaths": _listed(g["deaths"], lambda e: e["red_pre"]),
         "win_at": g["win"]["onset"] if g["win"] else None,
         "final_attempt": g["final_attempt"],
-        "fades": [(e["onset"], e["kind"]) for e in result["events"]],
+        "fades": _listed(cuts, lambda e: e["end"] - e["start"]),   # fades that aren't deaths; longest first
         "scene_cuts": (len(result["signals"]["scenes"]) if result["signals"].get("scenes") is not None
                        else "not detected (this ffmpeg has no scdet filter)"),
     }

@@ -14,6 +14,7 @@ transcript.json: {"model": "base", "language": "auto", "tracks": [0], "words": [
 from __future__ import annotations
 
 import bisect
+import codecs
 import json
 import math
 import os
@@ -37,17 +38,31 @@ def _norm(text: str) -> str:
     return re.sub(r"[^a-z0-9 ]+", "", text.lower()).strip()
 
 
-def parse(lines: str) -> list[list]:
+def parse(lines: str | bytes) -> list[list]:
     """The filter's JSON lines ({"start": ms, "end": ms, "text": ...}) -> [[t0, t1, word], ...].
     Sound labels whisper writes as text ([music], (laughs), *noises*) are dropped, also when they
-    are split over several words."""
-    words, label = [], False
+    are split over several words.
+
+    whisper.cpp writes raw token bytes, so a character can be split over two words or a stray byte
+    can appear (often in invented foreign-language text). Pass the file's bytes: a split character
+    is joined back into the word it starts, and bytes that make no character are dropped."""
+    if isinstance(lines, bytes):
+        lines = lines.decode("utf-8", "surrogateescape")
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+    words, label, pend = [], False, None   # pend: (start, text) of a word whose last character runs on
     for line in lines.splitlines():
         try:
             item = json.loads(line)
         except ValueError:
             continue
-        text = str(item.get("text", "")).strip()
+        raw = str(item.get("text", "")).encode("utf-8", "surrogateescape")
+        text = decoder.decode(raw).replace("�", "")
+        if pend:
+            item, text, pend = {**item, "start": pend[0]}, pend[1] + text, None
+        if decoder.getstate()[0]:      # ends inside a character: the rest comes with the next word
+            pend = (item["start"], text)
+            continue
+        text = text.strip()
         opens = text[:1] in "[(*♪♫" if text else False
         closes = text[-1:] in "])*♪♫" if text else False
         if label or opens:
@@ -203,7 +218,7 @@ def transcribe(source: str, tracks: list[int], model: tuple[str, str], out_json:
                 once(True)
             except MediaError:
                 once(False)  # GPU backends can fail on some drivers; the CPU always works
-            with open(dest, encoding="utf-8") as f:
+            with open(dest, "rb") as f:
                 words = parse(f.read())
     finally:
         for p in (wav, dest):
