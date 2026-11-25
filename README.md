@@ -141,6 +141,10 @@ nookcut skill install claude       # installs the editing playbook as a skill (a
 nookcut skill export cursor --dir ./my-project   # agents-md | gemini | cursor | windsurf | copilot | cline
 ```
 
+Run `skill install` or `skill export` again after updating NookCut to refresh the playbook. In a
+shared `AGENTS.md` or `GEMINI.md`, export only replaces the NookCut section (between its
+`nookcut-editor` markers) and keeps the rest of the file.
+
 For example, with Claude Code:
 
 ```bash

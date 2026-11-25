@@ -402,6 +402,40 @@ class Portability(unittest.TestCase):
         self.assertEqual(open(os.path.join(root, "skills/nookcut-editor/SKILL.md")).read(), skill_text())
         self.assertEqual(open(os.path.join(root, "GEMINI.md")).read(), skill_body())
 
+    def test_export_refreshes_the_playbook_and_keeps_the_rest(self):
+        import os, tempfile
+        from nookcut import agents
+        read = lambda p: open(p, encoding="utf-8").read()
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "AGENTS.md")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("# My project\n\nRun make test.\n")
+            agents.export_rules("agents-md", d)
+            first = read(path)
+            self.assertTrue(first.startswith("# My project\n\nRun make test.\n\n" + agents.START))
+            with open(path, "w", encoding="utf-8") as f:     # an old playbook between the markers
+                f.write(first.replace("Framing: any game", "OLD SECTION") + "\n# Notes\nkeep me\n")
+            agents.export_rules("agents-md", d)
+            text = read(path)
+            self.assertNotIn("OLD SECTION", text)
+            self.assertEqual(text.count(agents.START), 1)
+            self.assertTrue(text.startswith("# My project\n\nRun make test."))
+            self.assertTrue(text.endswith("# Notes\nkeep me\n"))
+            agents.export_rules("agents-md", d)
+            self.assertEqual(read(path), text)                 # running it again changes nothing
+            # an export from before the markers: replaced up to the next top-level heading
+            legacy = os.path.join(d, "GEMINI.md")
+            with open(legacy, "w", encoding="utf-8") as f:
+                f.write("# Intro\nhello\n\n# NookCut editor\n\nold playbook\n## Rules\nold\n\n# Team\nbob\n")
+            agents.export_rules("gemini", d)
+            text = read(legacy)
+            self.assertNotIn("old playbook", text)
+            self.assertIn("Framing: any game", text)
+            self.assertTrue(text.startswith("# Intro\nhello\n\n" + agents.START))
+            self.assertTrue(text.endswith(agents.END + "\n\n# Team\nbob\n"))
+            agents.export_rules("cursor", d)                   # a file of its own: written whole
+            self.assertIn("alwaysApply: false", read(os.path.join(d, ".cursor/rules/nookcut.mdc")))
+
     def test_every_platform_has_config(self):
         from nookcut.agents import mcp_config, platforms
         for p in platforms():

@@ -70,16 +70,42 @@ def install_skill(platform: str) -> str:
     return path
 
 
+# AGENTS.md and GEMINI.md are shared with the project's own instructions: the playbook sits between
+# these markers, so a later export replaces it and leaves everything else in the file alone.
+START = "<!-- nookcut-editor:start (written by `nookcut skill export`; run it again to update) -->"
+END = "<!-- nookcut-editor:end -->"
+
+
+def _section() -> str:
+    return f"{START}\n{skill_body().rstrip()}\n{END}\n"
+
+
+def _merge(existing: str) -> str:
+    """existing with its NookCut playbook replaced by the current one (or the playbook added)."""
+    if START in existing and END in existing.split(START, 1)[1]:
+        before, rest = existing.split(START, 1)
+        after = rest.split(END, 1)[1].lstrip("\n")
+        return before + _section() + ("\n" + after if after else "")
+    title = "# NookCut editor"
+    found = existing.find("\n" + title + "\n")
+    at = 0 if existing.startswith(title + "\n") else found + 1 if found >= 0 else -1
+    if at >= 0:
+        # an export from before the markers: the playbook runs to the next top-level heading
+        end = existing.find("\n# ", at + len(title))
+        after = existing[end + 1:] if end >= 0 else ""
+        return existing[:at] + _section() + ("\n" + after if after else "")
+    return existing.rstrip() + "\n\n" + _section()
+
+
 def export_rules(platform: str, project_dir: str) -> str:
     rel, header = RULE_FILES[platform]
     path = os.path.join(project_dir, rel)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    body = (header or "").format(desc=skill_description().replace("\n", " ")) + skill_body()
-    if os.path.exists(path) and platform in ("agents-md", "gemini"):
-        existing = open(path, encoding="utf-8").read()
-        if "# NookCut editor" in existing:
-            return path
-        body = existing.rstrip() + "\n\n" + skill_body()
+    if platform in ("agents-md", "gemini"):
+        existing = open(path, encoding="utf-8").read() if os.path.exists(path) else ""
+        body = _merge(existing) if existing.strip() else _section()
+    else:   # a file of its own: written whole
+        body = (header or "").format(desc=skill_description().replace("\n", " ")) + skill_body()
     with open(path, "w", encoding="utf-8") as f:
         f.write(body)
     return path
