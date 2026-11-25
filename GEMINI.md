@@ -21,6 +21,22 @@ one line per shot, in their words. Never invent facts or add claims they didn't 
 them write it, show them the script and get their approval before making the video. A natural voice
 needs Kokoro (`nookcut config kokoro`, run by the user); otherwise the computer's voice is used.
 
+**Helping write it.** Ask once for anything missing: topic, audience (and their level), platform,
+the one goal (followers, comments, saves, shares or leads), length (default 30-45 s), language and
+tone; otherwise pick a sensible default and say which.
+1. **One angle.** Pick one problem, mistake, myth, fear or question the audience has. Take it from what
+   the user gave you (their comments, notes) or your research when `online` is true; otherwise say
+   it is your assumption. One video = one idea.
+2. **Pick the format, then the beats** (shares of the length):
+   - teach: hook, problem (~30%), fix in at most 3 concrete steps (~50%), CTA
+   - story: hook, setup, escalation, payoff or twist, CTA
+   - reveal: claim, proof, CTA
+   - list: N items, best last
+3. **Word budget:** about 2.5 words per second, so 30 s is about 75 words. Each line becomes one shot
+   of 2-4 s, so a new picture every few seconds comes free.
+4. Show the user the script (one line per shot, with the B-roll each line should get) plus 2 other
+   hooks to try, and the self-check below, before calling `script_to_video`.
+
 ## 0. Environment first
 
 Call `check_environment`. If `ok` is false, stop and show the user exactly what is missing and the
@@ -111,7 +127,12 @@ claim. Keep it to the 3-5 most useful points.
    - hook (segment 0): curiosity + stakes in <= 6 words, e.g. "I DIED 7 TIMES|TO GET THIS"
    - vertical: <= 16 characters per line, `|` breaks lines, max 2 lines on top
    - in the brief's language; keep game/boss names accurate
-   - end card: a question that invites comments
+   - the hook must be delivered later in the video: no promise the footage doesn't keep
+   - end card: **one** ask, matched to the user's goal (default: comments): a question with a real
+     answer; follow with a specific reason ("Follow for part 2: ..."); "Save this for when you...";
+     "Send this to a friend who..."; or a soft "Full guide in bio". Never two asks in one video.
+   - banned: "Comment YES", "Tag 3 friends", "Like if...", vote bait ("comment 1 or 2"),
+     "Hey guys" or any greeting or intro before the hook, "don't forget to like and subscribe"
    - `music_style`: taiko (samurai, martial, historical), pulse (shooters, sci-fi, esports, tech),
      cinematic (bosses, fantasy, epic, sports)
 5. **Voiceover** (optional): write a short line for a segment with `update_edit` `{"i": n, "vo": "..."}`
@@ -129,6 +150,14 @@ claim. Keep it to the 3-5 most useful points.
 8. `preview_plan` returns the contact sheet as an image. Look at it and fix obviously bad picks
    (black frames, menus, loading screens) with `update_edit`. Then show the user the preview and
    the segment list and **get approval before rendering**.
+9. **Self-check, shown to the user with the plan** (fix anything that fails first):
+   - [ ] the hook works in under 3 s, with no intro, and the picture moves in the first second
+   - [ ] one idea, and the video delivers what the hook promised
+   - [ ] every claim comes from the footage, the user or a cited source
+   - [ ] the picture changes every 2-3 s; no dead air
+   - [ ] exactly one ask on the end card, matching the goal; no banned phrase
+   - [ ] the length fits (voiceover and script: about 2.5 words per second)
+   - [ ] if it can, the last line leads back into the first, so the video loops
 
 ## Framing: any game, any recording size
 
