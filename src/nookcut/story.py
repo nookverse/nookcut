@@ -40,7 +40,8 @@ def _base(brief: Brief, analysis: dict, template: str) -> dict:
     w, h = brief.size
     info = analysis["signals"]["info"]
     return {"source": brief.source, "title": brief.title, "game": brief.game, "template": template,
-            "orientation": brief.orientation, "width": w, "height": h,
+            "orientation": brief.orientation, "width": w, "height": h, "framing": brief.framing,
+            "source_width": info.get("width"), "source_height": info.get("height"),
             "fps": output_fps(info["fps"], brief.fps),
             "language": brief.language, "music": brief.music, "music_file": brief.music_file,
             "video_type": brief.video_type,
@@ -252,6 +253,18 @@ def tighten(brief: Brief, analysis: dict, words: list[list] | None = None) -> di
 
 def plan(brief: Brief, analysis: dict, template: str | None = None, words: list[list] | None = None) -> dict:
     """words: the transcript (optional); talking/tutorial videos are then cut on sentences."""
+    edit = _plan(brief, analysis, template, words)
+    if edit.get("framing") == "full" and edit.get("source_width"):
+        # framing full already enlarges the recording (2.7x for 720p); a zoom on top would look soft
+        from .render import window
+        cw, _ = window(edit["source_width"], edit["source_height"], edit["width"], edit["height"])
+        for s in edit["segments"]:
+            if s.get("zoom", 1) > 1 and edit["width"] / cw * s["zoom"] > 2.2:
+                s["zoom"] = 1.0
+    return edit
+
+
+def _plan(brief: Brief, analysis: dict, template: str | None, words: list[list] | None) -> dict:
     if template and template not in TEMPLATES:
         raise ValueError(f"template {template!r} is unknown; use one of {', '.join(TEMPLATES)}")
     if template == "tighten":

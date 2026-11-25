@@ -24,6 +24,9 @@ included), and writes a publish kit with titles, hashtags and region-aware posti
   highlighted. Talking videos are cut on whole sentences. Without the model, everything else still works.
 - **HDR handled.** PS5/Xbox HDR captures and iPhone HDR video are tone-mapped to normal colour (on the
   Apple GPU when available), or kept as 10-bit HDR10/HLG with `--hdr keep`.
+- **Any recording size.** 720p to 4K, 4:3, ultrawide and phone-vertical recordings all fit. With
+  `framing: full` the picture fills the vertical frame edge to edge (no blurred bars), and each shot
+  can be aimed and panned.
 - **High frame rate.** 120 fps recordings give slow motion from real frames instead of invented ones,
   and output matches the source's rate family (59.94, 60 or 50 fps).
 - **Script to video.** Write a script; NookCut narrates it offline over your own B-roll (or a moving
@@ -222,6 +225,7 @@ The same options work as CLI flags (`nookcut new` / `make`) and as arguments of 
 | `video_type` (`--type`) | gameplay if a game is set, else generic | `gameplay`, `talking`, `sports`, `tutorial`, `generic` |
 | `game` (`--game`) | none | Game name, for gameplay |
 | `orientation` (`--orientation`) | `vertical` | `vertical` (9:16), `square` (1:1), `wide` (16:9) |
+| `framing` (`--framing`) | `band` | `band`: a sharp band over a blurred copy. `full`: the picture fills the frame, each shot aimed with `focus` (and panned with `focus_end`) in `edit.json`; works for any recording size or shape. Change it any time with `nookcut framing PROJECT full` (or `band`), then render again |
 | `max_duration` (`--max`) | `60` | Length limit: `45`, `45s`, `1:30` |
 | `platforms` (`--platforms`) | Shorts, TikTok, Reels | `youtube_shorts`, `tiktok`, `instagram_reels`, `facebook_reels`, `youtube`, `x` |
 | `region` (`--region`) | global | Audience region for posting times, e.g. `India`, `United States` |

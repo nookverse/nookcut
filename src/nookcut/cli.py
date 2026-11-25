@@ -5,6 +5,7 @@
                      [--region India] [--language en] [--music ai|none|file] [--music-file x.mp3]
   nookcut analyze PROJECT
   nookcut plan PROJECT [--template comeback|victory|highlights|tighten]
+  nookcut framing PROJECT band|full   blurred bands (default) or the picture filling the frame
   nookcut preview PROJECT
   nookcut music PROJECT [--style taiko|pulse|cinematic]
   nookcut render PROJECT
@@ -70,6 +71,8 @@ def _brief_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--copy-pack", default="", help="a caption/title style pack (nookcut copy packs)")
     p.add_argument("--broll-dir", default="", help="folder of your own clips/pictures to show as B-roll")
     p.add_argument("--hdr", default="sdr", help="HDR sources: sdr (convert, plays everywhere) | keep (HDR10/HLG HEVC)")
+    p.add_argument("--framing", default="band", help="band (sharp band over a blurred copy) | full (the picture "
+                   "fills the frame; aim shots with focus in edit.json)")
 
 
 def _brief(a) -> Brief:
@@ -79,7 +82,8 @@ def _brief(a) -> Brief:
                  region=a.region, language=a.language, music=a.music, music_file=a.music_file,
                  source_audio=a.source_audio, online=a.online, subtitles=a.subtitles, key_moments=a.key_moments,
                  speech_language=a.speech_language, hdr=a.hdr, fps=a.fps, broll_dir=a.broll_dir,
-                 voiceover=a.voiceover, voice=a.voice, voice_speed=a.voice_speed, copy_pack=a.copy_pack)
+                 voiceover=a.voiceover, voice=a.voice, voice_speed=a.voice_speed, copy_pack=a.copy_pack,
+                 framing=a.framing)
 
 
 def _fail(e: BaseException, verbose: bool) -> int:
@@ -224,6 +228,8 @@ def _main(argv: list[str] | None = None) -> int:
     for name in ("analyze", "preview", "render"):
         sub.add_parser(name).add_argument("project")
     pp = sub.add_parser("plan"); pp.add_argument("project"); pp.add_argument("--template")
+    fm = sub.add_parser("framing", help="switch a project between band (blurred bands) and full (fills the frame)")
+    fm.add_argument("project"); fm.add_argument("framing", help="band | full")
     mu = sub.add_parser("music"); mu.add_argument("project"); mu.add_argument("--style")
     rs = sub.add_parser("resolve"); rs.add_argument("project"); rs.add_argument("--render", default="")
     w = sub.add_parser("when"); w.add_argument("region"); w.add_argument("--tz")
@@ -328,6 +334,8 @@ def _main(argv: list[str] | None = None) -> int:
         _print(_step(pl.run_analysis, "analyze", a.project, a.quiet))
     elif a.cmd == "plan":
         _print(pl.make_plan(a.project, a.template))
+    elif a.cmd == "framing":
+        _print(pl.set_framing(a.project, a.framing))
     elif a.cmd == "preview":
         print(_step(pl.make_preview, "preview", a.project, a.quiet))
     elif a.cmd == "music":

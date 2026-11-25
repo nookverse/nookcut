@@ -12,6 +12,7 @@ MUSIC_MODES = ("ai", "none", "file")
 SOURCE_AUDIO = ("keep", "duck", "mute")
 SUBTITLES = ("auto", "on", "off")
 HDR_MODES = ("sdr", "keep")
+FRAMINGS = ("band", "full")   # band: sharp band over a blurred fill; full: the picture fills the frame
 FPS_MODES = ("auto", "60", "30")
 VOICEOVER = ("off", "captions")
 
@@ -39,6 +40,9 @@ ALIASES = {
     "voiceover": {"off": ("", "no", "false", "none"), "captions": ("on", "yes", "true", "auto", "read", "read_captions")},
     "fps": {"auto": ("", "source", "default", "match"), "60": ("60fps", "59.94", "smooth", "high"),
             "30": ("30fps", "29.97", "small", "low")},
+    "framing": {"band": ("", "default", "classic", "blur", "blurred", "blur_fill", "fit"),
+                "full": ("full_bleed", "fullbleed", "bleed", "fill", "full_frame", "fullframe", "full_screen", "fullscreen", "edge_to_edge",
+                         "no_blur", "noblur", "crop")},
     "subtitles": {"auto": ("", "default"), "on": ("yes", "true", "always", "speech", "captions", "required"),
                   "off": ("no", "false", "none", "never")},
 }
@@ -106,6 +110,7 @@ class Brief:
     speech_language: str = "auto"               # spoken language for transcription ("auto" detects it)
     hdr: str = "sdr"                            # HDR sources: sdr (tone-mapped, plays everywhere) | keep (HDR10/HLG)
     fps: str = "auto"                           # output frame rate: auto (60, or 59.94 for NTSC sources) | 60 | 30
+    framing: str = "band"                       # band (sharp band over a blurred fill) | full (picture fills the frame)
     broll_dir: str = ""                         # folder of the user's own clips/pictures to show as B-roll
     voiceover: str = "off"                      # off | captions (read the hook and end captions aloud); agents add lines
     voice: str = ""                             # voice name (list_voices); empty = the best one for the language
@@ -127,6 +132,7 @@ class Brief:
         self.voiceover = canonical("voiceover", "on" if self.voiceover is True else "off" if self.voiceover is False
                                    else self.voiceover)
         self.voice_speed = float(self.voice_speed or 1.0)
+        self.framing = canonical("framing", self.framing)
         self.fps = canonical("fps", str(int(self.fps)) if isinstance(self.fps, (int, float)) else self.fps)
         if isinstance(self.platforms, str):
             self.platforms = self.platforms.split(",")
@@ -162,6 +168,8 @@ class Brief:
             raise ValueError("voice_speed must be between 0.7 and 1.5")
         if self.fps not in FPS_MODES:
             raise ValueError(f"fps {self.fps!r} is unknown; use one of {', '.join(FPS_MODES)}")
+        if self.framing not in FRAMINGS:
+            raise ValueError(f"framing {self.framing!r} is unknown; use one of {', '.join(FRAMINGS)}")
         if self.max_duration < 10:
             raise ValueError("max_duration must be at least 10 seconds")
         unknown = [p for p in self.platforms if p not in PLATFORM_MAX]

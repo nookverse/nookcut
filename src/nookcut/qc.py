@@ -165,6 +165,14 @@ def verify(edit: dict, video: str, sheet: str, task: Task | None = None) -> dict
     if expect_sound and not has_audio:
         issues.append("there is no sound")
 
+    if edit.get("framing") == "full":
+        from .render import upscale
+        ups = [u for u in (upscale(edit, s) for s in edit["segments"]) if u]
+        if ups:
+            facts["enlarged"] = max(ups)
+            if max(ups) > 3:
+                issues.append(f"the recording is enlarged up to {max(ups):g}x to fill the frame, so it looks soft; "
+                              "use zoom 1 or a higher-resolution recording")
     found = scan(video, has_audio, task)
     end_fade = length - 0.8
     black = [b for b in found["black"] if b[0] < end_fade]   # the end card fades out on purpose

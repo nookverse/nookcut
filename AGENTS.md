@@ -53,7 +53,7 @@ src/nookcut/
   subtitles.py   word-by-word .ass captions for the render, .srt for export
   edit.py        the edit.json contract (segments, kinds, validation)
   music.py       procedural score (taiko | pulse | cinematic), mastered with ffmpeg
-  render.py      parallel per-segment render + concat + audio mix; preview contact sheet
+  render.py      parallel per-segment render + concat + audio mix; framing (band | full + focus); preview sheet
   config.py      ~/.config/nookcut/config.env (NOOKCUT_* settings for the CLI and the shared server)
   adapters/      programs NookCut runs but never imports (kokoro_say.py, run by the user's Kokoro Python)
   script.py      script to video: lines, narration timing, per-line B-roll (script_to_video)
@@ -151,5 +151,7 @@ playbook (see `gemini-extension.json`), not contributor guidance.
   untested (test-encoded before use). Moment detection reads HDR brightness without tone mapping.
   Dolby Vision / HDR10+ dynamic metadata are dropped (the base picture is used); Dolby Vision
   profile 5 is refused. Output is at most 60 fps (high frame rate sources feed real-frame slow motion).
+- `framing: full` sets each Resolve clip's Pan/Tilt from its focus; the sign and units are assumed,
+  not yet checked in Resolve, and pans (`focus_end`) aren't carried over.
 - Detection is tuned on action games (death = fade after a red vignette); other genres fall back
   to the generic highlights template.

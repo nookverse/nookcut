@@ -57,7 +57,8 @@ _kwargs = {"instructions": (
     f"Step by step: {WORKFLOW}. Load the 'nookcut-editor' prompt or read resource nookcut://skill for the full playbook. "
     "Long steps accept wait=false and return a job_id: poll job_status to show the user progress (percent, "
     "stage, ETA) and use cancel_job if they want to stop. Errors carry a plain-language message and a hint: "
-    "relay them to the user. Never post on the user's behalf.")}
+    "relay them to the user. Framing is band (blurred bands) by default; use framing='full' (picture fills "
+    "the frame) only when the user asks, and aim each shot with update_edit focus. Never post on the user's behalf.")}
 try:
     mcp = _Server("nookcut", version=__version__, **_kwargs)
 except TypeError:
@@ -223,7 +224,8 @@ def check_environment() -> dict:
 
 def _brief(source, title, video_type, game, orientation, max_duration, region, language, music, music_file,
            source_audio, platforms, key_moments, online, subtitles="auto", speech_language="auto",
-           hdr="sdr", fps="auto", broll_dir="", voiceover="off", voice="", voice_speed=1.0, copy_pack="") -> Brief:
+           hdr="sdr", fps="auto", broll_dir="", voiceover="off", voice="", voice_speed=1.0, copy_pack="",
+           framing="band") -> Brief:
     if not video_type:
         video_type = "gameplay" if game else "generic"
     return Brief(title=title, source=_path(source, must_exist=True), video_type=video_type, game=game,
@@ -233,7 +235,8 @@ def _brief(source, title, video_type, game, orientation, max_duration, region, l
                  key_moments=key_moments or [], online=online, subtitles=subtitles,
                  speech_language=speech_language or "auto", hdr=hdr or "sdr", fps=fps or "auto",
                  broll_dir=_path(broll_dir, must_exist=bool(broll_dir)), voiceover=voiceover or "off",
-                 voice=voice or "", voice_speed=voice_speed or 1.0, copy_pack=copy_pack or "")
+                 voice=voice or "", voice_speed=voice_speed or 1.0, copy_pack=copy_pack or "",
+                 framing=framing or "band")
 
 
 @_tool(annotations=WRITES)
@@ -243,7 +246,7 @@ def create_project(project_dir: str, source: str, title: str, video_type: str = 
                    platforms: list[str] | str | None = None, key_moments: list[dict] | None = None,
                    online: bool = False, subtitles: str = "auto", speech_language: str = "auto",
                    hdr: str = "sdr", fps: str = "auto", broll_dir: str = "", voiceover: str = "off",
-                   voice: str = "", voice_speed: float = 1.0, copy_pack: str = "") -> dict:
+                   voice: str = "", voice_speed: float = 1.0, copy_pack: str = "", framing: str = "band") -> dict:
     """Step 1. Save the brief into project_dir. video_type: gameplay|talking|sports|tutorial|generic
     (empty = gameplay if game is set). orientation: vertical|square|wide. music: ai|none|file.
     source_audio: keep|duck|mute. platforms: youtube_shorts, tiktok, instagram_reels, facebook_reels,
@@ -256,11 +259,13 @@ def create_project(project_dir: str, source: str, title: str, video_type: str = 
     user's own clips/pictures to show as B-roll (never downloaded). voiceover: off | captions (the
     hook and end captions read aloud; write other lines yourself with update_edit "vo"). voice: a
     name from list_voices (empty = the best for the language); voice_speed 0.7-1.5. copy_pack: a
-    caption/title style pack the user installed (suggest_copy lists the installed ones). Relay any warnings."""
+    caption/title style pack the user installed (suggest_copy lists the installed ones). framing: band
+    (default: a sharp band over a blurred copy) | full (the picture fills the whole frame, no blur or
+    borders; aim each shot with update_edit focus), only when the user picks it. Relay any warnings."""
     _ready()
     b = _brief(source, title, video_type, game, orientation, max_duration, region, language, music, music_file,
                source_audio, platforms, key_moments, online, subtitles, speech_language, hdr, fps, broll_dir,
-               voiceover, voice, voice_speed, copy_pack)
+               voiceover, voice, voice_speed, copy_pack, framing)
     out = pl.new_project(_path(project_dir), b)
     out["next"] = "analyze_video (wait=false, then poll job_status)"
     return out
@@ -273,17 +278,19 @@ def auto_edit(source: str, title: str, project_dir: str = "", video_type: str = 
               platforms: list[str] | str | None = None, key_moments: list[dict] | None = None,
               file_name: str = "", subtitles: str = "auto", template: str = "", hdr: str = "sdr",
               broll_dir: str = "", voiceover: str = "off", voice: str = "", copy_pack: str = "",
-              wait: bool = True) -> dict:
+              framing: str = "band", wait: bool = True) -> dict:
     """Make the finished short in ONE call, offline: analyze, plan, captions, original music,
     render, DaVinci Resolve files and publish kit. Only source and title are needed. Best path for
     small or local models. Speech is captioned word by word when a speech model is installed
     (subtitles: auto|on|off). template: empty = auto, or "tighten" to keep the whole recording and
     cut out its pauses (jump cuts). HDR recordings are converted to normal colour; hdr="keep" keeps
-    HDR10/HLG instead. Takes a few minutes; wait=false returns a job_id for job_status."""
+    HDR10/HLG instead. framing="full" (only when the user asks for it) fills the frame with the centre of the picture (no blurred
+    bands); check the result, since the action may sit off-centre. Takes a few minutes; wait=false
+    returns a job_id for job_status."""
     _ready()
     b = _brief(source, title, video_type, game, orientation, max_duration, region, language, music, "",
                source_audio, platforms, key_moments, False, subtitles, hdr=hdr, broll_dir=broll_dir,
-               voiceover=voiceover, voice=voice, copy_pack=copy_pack)
+               voiceover=voiceover, voice=voice, copy_pack=copy_pack, framing=framing)
     project = _path(project_dir) or os.path.join(os.path.dirname(b.source),
                                                   pl.slug(title).lower() + "-nookcut")
 
@@ -375,9 +382,14 @@ def get_edit(project_dir: str) -> dict:
 
 
 @_tool(annotations=WRITES)
-def update_edit(project_dir: str, changes: list[dict], music_style: str = "") -> dict:
+def update_edit(project_dir: str, changes: list[dict], music_style: str = "", framing: str = "") -> dict:
     """Change segments. Each change: {"i": index, ...fields} to update (top, bottom, src_in, src_out,
-    speed, zoom, kind, words), {"i": index, "delete": true}, or {"insert_at": index, "segment": {...}}.
+    speed, zoom, kind, words, focus, focus_end), {"i": index, "delete": true}, or
+    {"insert_at": index, "segment": {...}}. framing: band | full for the whole video, only when the user
+asks (e.g. "full screen, no blur" or "back to the blurred style"); then render again. With framing full,
+    focus [x, y] is where the shot is aimed, as fractions of the picture (0.5, 0.5 = middle; x 0.3 =
+    left of centre); focus_end [x, y] pans there over the segment (null = no pan); zoom 1-4 frames
+    tighter. preview_plan outlines what each shot shows.
     '|' in a caption forces a line break; keep vertical lines <= 16 characters. words are the
     speech captions as [[start, end, "word"], ...] in source seconds: fix a misheard word there,
     or set [] to hide speech captions on that segment. crop is the black-bar crop [x, y, w, h]
@@ -402,7 +414,7 @@ def update_edit(project_dir: str, changes: list[dict], music_style: str = "") ->
             segs.insert(c["insert_at"], ed.seg(s["src_in"], s["src_out"], s.get("kind", "highlight"),
                                                s.get("speed", 1.0), s.get("top", ""), s.get("bottom", ""),
                                                s.get("zoom", 1.0), s.get("hits"), s.get("impact")))
-            for extra in ("words", "crop", "broll", "vo", "vo_at"):   # seg() keeps only the basic fields
+            for extra in ("words", "crop", "broll", "vo", "vo_at", "focus", "focus_end"):   # seg() keeps only the basic fields
                 if extra in s:
                     segs[c["insert_at"]][extra] = s[extra]
             if "words" not in s:
@@ -417,7 +429,7 @@ def update_edit(project_dir: str, changes: list[dict], music_style: str = "") ->
     if errors:
         raise ValueError("; ".join(errors))
     ed.save(edit, path)
-    out = pl.describe(edit)
+    out = pl.set_framing(project_dir_real, framing) if framing else pl.describe(edit)
     out["next"] = "preview_plan to check the frames, then get the user's approval"
     return out
 

@@ -14,8 +14,8 @@ extra: only when the user allows it and you have a search tool.
 ## Quick path (any agent, offline)
 
 If you are a small or local model, or the user just wants the video: check the environment, then
-call `auto_edit(source, title)` (add `game`, `region`, `max_duration`, `orientation` if the user
-gave them). It returns the finished video, the publish kit and DaVinci Resolve files. Show the user
+call `auto_edit(source, title)` (add `game`, `region`, `max_duration`, `orientation`, `framing` if the
+user gave them). It returns the finished video, the publish kit and DaVinci Resolve files. Show the user
 the `summary`, `video` and `publish_kit` paths, and offer changes (`suggest_copy` + `update_edit`,
 then `render_video`). The steps below give full control.
 
@@ -46,6 +46,7 @@ download they run themselves; after that it works offline), and carry on without
 | game | game name, if gameplay | - |
 | platforms | YouTube Shorts, TikTok, Reels, Facebook Reels, YouTube | Shorts + TikTok + Reels |
 | orientation | vertical / square / wide | from platforms |
+| framing | band (sharp band over a blurred copy) or full (the picture fills the frame); see "Framing" | band; full only when the user picks it |
 | max_duration | seconds | 60 |
 | region | audience region/country | global |
 | language | caption language | en |
@@ -134,6 +135,81 @@ claim. Keep it to the 3-5 most useful points.
    (black frames, menus, loading screens) with `update_edit`. Then show the user the preview and
    the segment list and **get approval before rendering**.
 
+## Framing: any game, any recording size
+
+NookCut takes any recording: 720p to 4K, 4:3, ultrawide (21:9, 32:9), phone-vertical, HDR, 30 to
+120 fps. The analysis `info` line gives its size. There are two ways to fill a vertical or square
+frame:
+
+- **band** (the default): a sharp band of the picture over a blurred, darker copy, with captions on
+  the blur. It keeps more of the screen, so it suits strategy games, menus, maps and small text.
+- **full**: the picture fills the whole frame with no blur or borders, and each shot shows a window
+  of it, aimed by you. Some creators report less Facebook Reels reach for blurred-background or
+  bordered clips, and Meta's originality guidance names "adding borders" as a low-value edit to
+  someone else's content. Facebook hasn't published a rule on blurred backgrounds, so present this
+  as creator reports, not fact.
+
+**The user decides, and can change it any time.** Use band unless the user picks full. Never
+switch on your own, even for Facebook. When the platforms include Facebook Reels, or the user
+mentions blur, borders, bars or "full screen", add one line to the brief message: "Blurred band
+(the default) or full-bleed (the gameplay fills the screen)?" Don't ask again after they answer.
+- Before planning: `create_project` / `auto_edit` with `framing`.
+- After a plan or a render: when the user says "make it full-bleed / full screen / no blur" or
+  "back to the blurred style", call `update_edit` with `framing` (`full` or `band`). Cuts, captions,
+  music and voiceover stay as they are; with full, aim the shots (below), show `preview_plan`, then
+  `render_video` again. It's also saved in the brief, so a later `plan_edit` keeps it.
+- In a terminal: `nookcut framing <project> full` (or `band`), then `nookcut render <project>`.
+
+**Aim every shot** (framing full). A 9:16 window of a 16:9 recording is under a third of its width,
+so the centre is often wrong. Look at the recording with `get_frames` (`source: true`), then set each
+segment's `focus` with `update_edit`. Focus is `[x, y]` as fractions of the picture: `[0.5, 0.5]` is
+the middle, `[0.3, 0.5]` is left of centre. The same numbers work at any resolution.
+- First-person shooters: the crosshair sits at the middle, so `[0.5, 0.5]` usually works.
+- Third-person and open-world games: aim at the character, usually a little below the middle, or at
+  whatever they are looking at.
+- Racing: the car, low in the frame. Sports and fighting games: the ball or both fighters; if they
+  are far apart, use band for that video.
+- When the action moves across the screen (a walk, a chase, a reveal), add `focus_end` and the shot
+  eases there over the segment. Use one slow pan per shot and none during fast action.
+- `zoom` 1.5-2 frames tighter (a face, an item), but it enlarges the recording further.
+
+`preview_plan` outlines each window on the contact sheet (yellow at the start, cyan where a pan
+ends). Fix the focus until the subject is inside every outline, then show the user. `auto_edit` and
+`plan_edit` aim at the middle; with framing full, always check and fix the focus before rendering.
+If you can't see images, ask the user where the action is in each shot ("left, middle or right?")
+and use 0.25, 0.5 or 0.75; if they don't know, keep the middle, or use band for that video.
+
+**Recording size.** The window is enlarged to 1080x1920:
+
+| Recording | Window | Enlarged |
+|---|---|---|
+| 4K (3840x2160) | 1214x2160 | none, sharp |
+| 1440p | 810x1440 | 1.3x |
+| 1080p, 4:3, 21:9, 32:9 at 1080 lines | 606x1080 | 1.8x |
+| 720p | 404x720 | 2.7x, soft |
+| phone-vertical | the whole picture | none |
+
+A `zoom` multiplies these. The plan's `framing_note` and the render `checks` report the
+largest enlargement (checks flag anything over 3x). On 720p recordings, keep `zoom` at 1, tell the user the picture will be soft, and suggest recording at 1080p or higher next
+time. Ultrawide recordings show the smallest share of the screen, so aim them carefully.
+
+**What full framing brings back.** The band layout cut off the top and bottom of the screen; full
+framing shows the whole height, and with it everything at the edges: player names and gamer tags,
+chat, party lists, notifications, the game's own subtitles (which may carry swearing), HUD pop-ups
+and gore. NookCut can't blur part of the picture, so aim or zoom the window away from it, or pick
+another moment. Check the rendered frames (`verify_video`) for this every time. The corner HUD
+(minimap, health, kill feed) is often cut off; let the captions carry the story.
+
+**For any game, also:**
+- Keep the hook and the cover free of gore and strong swearing: platforms can limit reach and ads
+  for them, and the opening seconds decide who keeps watching.
+- Don't build a clip around a cutscene or a story spoiler. Many publishers' video policies allow
+  gameplay but not those; point the user to the game's policy if they plan to monetize.
+- In-game radio or a licensed soundtrack can get the clip claimed. If you hear a song (or the user
+  mentions one), offer `source_audio: mute` or other moments. NookCut's own music is original.
+- Keep the subject in the middle of the frame. Captions sit at the top and lower third, and the
+  platform's buttons and description cover the right edge and the bottom fifth.
+
 ## 4. Make
 
 `generate_music` (skip if music is none) -> `render_video` with `file_name` from `suggest_copy` (or a
@@ -142,7 +218,8 @@ keyword-rich one from research) -> `export_resolve` (pass the render path) so th
 **Check before you hand over.** `render_video` (and `auto_edit`) return `checks`: if `issues` is not
 empty, tell the user each one and offer a fix. If you can see images, look at the frames too:
 `verify_video` gives one per segment, `get_frames` any times you want (`source: true` for the
-original). Check that captions fit, the crop shows the action, and nothing private is on screen.
+original). Check that captions fit, the crop shows the action (with framing full: the subject in
+every shot), and nothing private is on screen.
 Never say the video is fine without having checked.
 
 **Long steps (analyze, render): keep the user informed.** Start them with `wait=false`, then poll

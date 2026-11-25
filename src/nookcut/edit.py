@@ -7,9 +7,11 @@ edit.json:
   "segments": [
     {"src_in": 642.4, "src_out": 644.0, "speed": 0.5, "kind": "hook",
      "top": "IT TOOK ME|8 TRIES", "bottom": "WAIT FOR IT", "zoom": 1.25,
-     "hits": [643.0], "impact": null}
+     "hits": [643.0], "impact": null, "focus": [0.62, 0.5], "focus_end": [0.4, 0.5]}
   ]
 }
+framing "full" fills the frame with a window of the picture (no blurred fill); focus is that window's
+centre as fractions of the picture (0.5, 0.5 = middle), focus_end makes it pan there over the segment.
 '|' in captions forces a line break. kind drives transitions and music:
 hook, intro, death, card, highlight, slowmo, finisher, outro, end.
 """
@@ -72,8 +74,15 @@ def to_output(start: float, s: dict, src_t: float) -> float:
     return start + (src_t - s["src_in"]) / s["speed"]
 
 
+def _point(v) -> bool:
+    return (isinstance(v, (list, tuple)) and len(v) == 2
+            and all(isinstance(x, (int, float)) and not isinstance(x, bool) and 0 <= x <= 1 for x in v))
+
+
 def validate(edit: dict, source_duration: float | None = None) -> list[str]:
     errors = []
+    if edit.get("framing", "band") not in ("band", "full"):
+        errors.append(f"framing {edit.get('framing')!r} is unknown; use band or full")
     for i, s in enumerate(edit["segments"]):
         if s["kind"] not in KINDS:
             errors.append(f"segment {i}: unknown kind {s['kind']!r}")
@@ -83,6 +92,11 @@ def validate(edit: dict, source_duration: float | None = None) -> list[str]:
             errors.append(f"segment {i}: speed {s['speed']} out of range 0.1..4")
         if source_duration and s["src_out"] > source_duration + 0.05:
             errors.append(f"segment {i}: src_out {s['src_out']} beyond source end {source_duration:.2f}")
+        for key in ("focus", "focus_end"):
+            if s.get(key) is not None and not _point(s[key]):
+                errors.append(f"segment {i}: {key} must be [x, y], each 0-1 (0.5 is the middle of the picture)")
+        if not 1 <= float(s.get("zoom") or 1) <= 4:
+            errors.append(f"segment {i}: zoom {s.get('zoom')} out of range 1..4")
         if s.get("vo") is not None and (not isinstance(s["vo"], str) or len(s["vo"]) > 400):
             errors.append(f"segment {i}: vo must be text of at most 400 characters")
         if s.get("vo_at") is not None and not 0 <= float(s["vo_at"]) < seg_duration(s):

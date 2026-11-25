@@ -1,9 +1,12 @@
 """ffmpeg renderer: one clip per segment (in parallel), then concat + audio mix.
 
-Layouts
+Layouts (framing "band", the default)
   vertical  1080x1920  sharp gameplay band (1.2:1 crop) over a blurred fill, captions above/below
   square    1080x1080  full 16:9 frame over a blurred fill
   wide      1920x1080  full frame, captions over the picture
+Framing "full": any orientation is filled edge to edge by a window of the picture with the output's
+shape, placed by each segment's focus (and panned to focus_end), captions over the picture. Works for
+any source size or shape: 720p to 4K, 4:3, ultrawide, phone-vertical.
 """
 from __future__ import annotations
 
@@ -64,6 +67,47 @@ def _layout(edit: dict) -> dict:
                 "big": 82, "small": 44, "bottom_y": 920, "speech": 76, "speech_chars": 22}
     return {"fg_w": 1920, "fg_h": 1080, "fg_y": 0, "crop_aspect": 16 / 9, "top_y": 60, "line": 120,
             "big": 104, "small": 56, "bottom_y": 930, "speech": 92, "speech_chars": 28}
+
+
+def window(src_w: int, src_h: int, W: int, H: int, zoom: float = 1.0) -> tuple[int, int]:
+    """Framing "full": the largest W:H window of a src_w x src_h picture, shrunk by zoom (even sizes)."""
+    zoom = max(1.0, float(zoom or 1))
+    if src_w * H >= src_h * W:      # picture wider than the output: full height, cut the sides
+        ch = src_h / zoom
+        cw = ch * W / H
+    else:                           # picture taller (phone recording into square/wide): cut top and bottom
+        cw = src_w / zoom
+        ch = cw * H / W
+    return max(2, int(cw) // 2 * 2), max(2, int(ch) // 2 * 2)
+
+
+def focus_of(s: dict) -> tuple[list, list]:
+    start = list(s.get("focus") or (0.5, 0.5))
+    return start, list(s.get("focus_end") or start)
+
+
+def _focus_crop(s: dict, cw: int, ch: int, dur: float) -> str:
+    """crop for framing "full": the window centred on focus, eased to focus_end over the segment,
+    kept inside the picture. Fractions of iw/ih, so it holds for any decoded size."""
+    (x0, y0), (x1, y1) = focus_of(s)
+    p = f"min(1,t/{max(dur, 0.01):.4f})"
+    ease = f"({p})*({p})*(3-2*({p}))"
+
+    def axis(a, b, full, size):
+        centre = f"{a:.4f}" if abs(b - a) < 1e-4 else f"({a:.4f}+({b - a:.4f})*{ease})"
+        return f"'max(0,min({full}-{size},{centre}*{full}-{size}/2))'"
+    return (f"crop=w='min({cw},iw)':h='min({ch},ih)':x={axis(x0, x1, 'iw', 'ow')}:y={axis(y0, y1, 'ih', 'oh')}")
+
+
+def upscale(edit: dict, s: dict | None = None) -> float | None:
+    """How much framing "full" enlarges the recording (2.7 for 720p into 1080x1920), or None if unknown."""
+    sw, sh = edit.get("source_width"), edit.get("source_height")
+    if not sw or not sh:
+        return None
+    if s and s.get("crop"):
+        sw, sh = s["crop"][2], s["crop"][3]
+    cw, _ = window(sw, sh, edit["width"], edit["height"], (s or {}).get("zoom", 1.0))
+    return round(edit["width"] / cw, 2)
 
 
 def color_plan(edit: dict, sdr_only: bool = False) -> dict:
@@ -222,7 +266,12 @@ def _segment(edit, i, s, work, font, hwaccel, src_w, src_h, task=None, on_progre
     dur = seg_duration(s)
     zoom = s.get("zoom", 1.0)
     W, H = edit["width"], edit["height"]
-    if src_w / src_h >= L["crop_aspect"]:
+    full = edit.get("framing") == "full"
+    if full:
+        # the picture fills the frame: a window of the output's shape, placed by focus
+        cw, ch = window(src_w, src_h, W, H, zoom)
+        fg_w, fg_h, x, y = W, H, 0, 0
+    elif src_w / src_h >= L["crop_aspect"]:
         # landscape source: crop a band of the layout's aspect and place it at fg_y
         ch = int(src_h / zoom) // 2 * 2
         cw = min(src_w, int(ch * L["crop_aspect"])) // 2 * 2
@@ -235,7 +284,16 @@ def _segment(edit, i, s, work, font, hwaccel, src_w, src_h, task=None, on_progre
         if fg_w > W:
             fg_w, fg_h = W, int(W * ch / cw) // 2 * 2
         x, y = (W - fg_w) // 2, (H - fg_h) // 2
-    fg = f"crop='min({cw},iw)':'min({ch},ih)',scale={fg_w}:{fg_h}"
+    if full and focus_of(s)[0] != focus_of(s)[1]:
+        # a pan: enlarge first, then move the window in output pixels, so a slow pan glides
+        # instead of stepping by whole (enlarged) source pixels
+        k = W / cw
+        fg = (f"scale={int(src_w * k) // 2 * 2}:{int(src_h * k) // 2 * 2}:flags=lanczos,"
+              f"{_focus_crop(s, W, H, dur)},setsar=1")
+    elif full:
+        fg = f"{_focus_crop(s, cw, ch, dur)},scale={fg_w}:{fg_h}:flags=lanczos,setsar=1"
+    else:
+        fg = f"crop='min({cw},iw)':'min({ch},ih)',scale={fg_w}:{fg_h}"
     rate = str(edit.get("fps") or 60)
     if needs_interpolation(edit, s):  # only invent frames the source doesn't have (120 fps at 0.5x has them)
         fg += f",minterpolate=fps={rate}:mi_mode=mci:mc_mode=aobmc:vsbmc=1"
@@ -438,6 +496,19 @@ def render(edit: dict, out_path: str, music_wav: str | None, hwaccel: str | None
         shutil.rmtree(work, ignore_errors=True)
 
 
+def _window_boxes(edit: dict, s: dict) -> str:
+    """Contact sheet, framing "full": outline what the viewer sees (yellow at the start, cyan where a
+    pan ends), so a wrong focus shows before anything is rendered."""
+    W, H, z = edit["width"], edit["height"], max(1.0, float(s.get("zoom") or 1))
+    bw, bh = f"min(iw\\,ih*{W}/{H})/{z}", f"min(ih\\,iw*{H}/{W})/{z}"
+    out = ""
+    start, end = focus_of(s)
+    for (fx, fy), col in ((start, "yellow"), (end, "cyan")) if end != start else ((start, "yellow"),):
+        out += (f",drawbox=w={bw}:h={bh}:x=max(0\\,min(iw-w\\,{fx}*iw-w/2)):"
+                f"y=max(0\\,min(ih-h\\,{fy}*ih-h/2)):color={col}:t=12")
+    return out
+
+
 PREVIEW_MAX = 40
 TARGET_LUFS = -14   # where YouTube, TikTok and Instagram normalise short-form video
 
@@ -474,6 +545,8 @@ def preview(edit: dict, out_png: str, task: Task | None = None) -> str:
                     at %= length   # short clips loop in the render; the sheet shows the same frame
                 label += f"  B-roll: {b['file']} ({b.get('layout', 'cover')})"
                 open(lp, "w", encoding="utf-8").write(label)
+            if edit.get("framing") == "full" and colour != "null":
+                colour += _window_boxes(edit, s)
             vf = (f"{colour},scale=480:270,drawtext=fontfile={_q(font)}:textfile={_q(lp)}:fontsize=18:fontcolor=yellow"
                   f":box=1:boxcolor=black@0.7:x=6:y=6,drawtext=fontfile={_q(font)}:textfile={_q(cp)}:fontsize=26"
                   f":fontcolor=white:borderw=3:bordercolor=black:x=(w-text_w)/2:y=h-40")

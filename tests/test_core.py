@@ -762,6 +762,78 @@ class Broll(unittest.TestCase):
             r._segment(hdr, 0, s, work, "/x/Impact.ttf", None, 1920, 1080, look=r.color_plan(hdr))
 
 
+class Framing(unittest.TestCase):
+    """framing "full": a window of the output's shape fills the frame, for any recording size."""
+
+    def test_window_fits_any_shape(self):
+        from nookcut.render import window
+        self.assertEqual(window(1920, 1080, 1080, 1920), (606, 1080))     # 16:9 into 9:16: full height
+        self.assertEqual(window(1280, 720, 1080, 1920), (404, 720))
+        self.assertEqual(window(3840, 1080, 1080, 1920), (606, 1080))     # 32:9 ultrawide
+        self.assertEqual(window(1080, 2340, 1080, 1920), (1080, 1920))    # tall phone: top and bottom cut
+        self.assertEqual(window(1080, 1920, 1920, 1080), (1080, 606))     # vertical into wide
+        self.assertEqual(window(1920, 1080, 1080, 1920, 2.0), (302, 540))  # zoom frames tighter
+
+    def test_full_frame_has_no_blurred_fill_and_follows_focus(self):
+        import tempfile
+        from unittest import mock
+        from nookcut import render as r
+        from nookcut.edit import seg
+        edit = {"source": "in.mp4", "orientation": "vertical", "width": 1080, "height": 1920, "fps": "60",
+                "source_audio": "duck", "source_hdr": None, "framing": "full"}
+        s = seg(10, 14, "highlight")
+        s.update(focus=[0.2, 0.5], focus_end=[0.8, 0.5])
+        cmds = []
+        with tempfile.TemporaryDirectory() as work, mock.patch.object(r, "run", lambda c, *a, **k: cmds.append(c)):
+            r._segment(edit, 0, s, work, "/x/Impact.ttf", None, 1280, 720, look=r.color_plan(edit))
+        graph = cmds[0][cmds[0].index("-filter_complex") + 1]
+        self.assertNotIn("gblur", graph)
+        self.assertIn("(0.2000+(0.6000)*", graph)                    # eased pan from 0.2 to 0.8
+        self.assertIn("scale=3420:1924:flags=lanczos,crop=w='min(1080,iw)'", graph)   # enlarged, then panned
+        s["focus_end"] = None
+        with tempfile.TemporaryDirectory() as work, mock.patch.object(r, "run", lambda c, *a, **k: cmds.append(c)):
+            r._segment(edit, 0, s, work, "/x/Impact.ttf", None, 1280, 720, look=r.color_plan(edit))
+        self.assertIn("crop=w='min(404,iw)':h='min(720,ih)':x='max(0,min(iw-ow,0.2000*iw-ow/2))'",
+                      cmds[-1][cmds[-1].index("-filter_complex") + 1])
+
+    def test_focus_is_checked(self):
+        edit = {"framing": "full", "segments": [{"src_in": 0, "src_out": 2, "speed": 1, "kind": "hook",
+                                                 "focus": [1.4, 0.5], "focus_end": "left"}]}
+        errs = validate(edit)
+        self.assertEqual(len(errs), 2)
+        self.assertIn("focus must be [x, y]", errs[0])
+        self.assertIn("framing", validate({"framing": "zoomed", "segments": []})[0])
+        self.assertEqual(Brief(title="t", source="s", framing="full_bleed").framing, "full")
+        self.assertEqual(Brief(title="t", source="s").framing, "band")
+
+    def test_user_can_switch_framing_after_planning(self):
+        import json, os, tempfile
+        from nookcut import pipeline as pl
+        from nookcut.errors import InputError
+        with tempfile.TemporaryDirectory() as d:
+            Brief(title="t", source="s").save(os.path.join(d, "brief.json"))
+            self.assertEqual(pl.set_framing(d, "full screen")["framing"], "full")   # no edit yet: brief only
+            with open(os.path.join(d, "edit.json"), "w") as f:
+                json.dump({"template": "highlights", "framing": "full", "segments": []}, f)
+            out = pl.set_framing(d, "blur")
+            self.assertEqual(out["framing"], "band")
+            self.assertEqual(json.load(open(os.path.join(d, "edit.json")))["framing"], "band")
+            self.assertEqual(Brief.load(os.path.join(d, "brief.json")).framing, "band")
+            with self.assertRaises(InputError):
+                pl.set_framing(d, "sideways")
+
+    def test_resolve_starts_each_shot_at_its_focus(self):
+        from nookcut.export import resolve_frames
+        edit = {"framing": "full", "width": 1080, "height": 1920, "source_width": 1920, "source_height": 1080,
+                "segments": [{"zoom": 1.0}, {"zoom": 1.0, "focus": [0.25, 0.5]}, {"zoom": 1.0, "focus": [0.0, 0.5]}]}
+        mid, left, edge = resolve_frames(edit, 1.48)
+        self.assertEqual(mid[1:], (0.0, 0.0))
+        self.assertAlmostEqual(mid[0], 3.1683, places=3)              # fit to width, then fill the height
+        self.assertGreater(left[1], 0)                                 # aim left: the picture moves right
+        self.assertAlmostEqual(edge[1], (960 - 303) * 1080 / 606, places=0)   # held inside the picture
+        self.assertEqual(resolve_frames({**edit, "framing": "band"}, 1.48)[0], (1.48, 0.0, 0.0))
+
+
 class Voiceover(unittest.TestCase):
     def test_command_engine_runs_without_a_shell(self):
         import os

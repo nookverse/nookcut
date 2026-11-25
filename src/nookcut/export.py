@@ -18,6 +18,29 @@ def _tc(seconds: float, fps: int) -> str:
     return f"{f // (3600 * fps):02d}:{f // (60 * fps) % 60:02d}:{f // fps % 60:02d}:{f % fps:02d}"
 
 
+
+def resolve_frames(edit: dict, band_zoom: float) -> list[tuple[float, float, float]]:
+    """(zoom, pan, tilt) per clip on the EDITABLE timeline. Resolve first scales a clip to fit the
+    timeline; framing "full" then zooms until the focus window fills it and moves it there (pan in
+    timeline pixels, assumed + = right; tilt, assumed + = up: not yet checked in Resolve). A pan
+    (focus_end) is left to the editor."""
+    sw, sh = edit.get("source_width"), edit.get("source_height")
+    if edit.get("framing") != "full" or not sw or not sh:
+        return [(band_zoom, 0.0, 0.0)] * max(1, len(edit["segments"]))
+    from .render import focus_of, window
+    W, H = edit["width"], edit["height"]
+    fit = min(W / sw, H / sh)
+    out = []
+    for s in edit["segments"]:
+        px, py, pw, ph = s["crop"] if s.get("crop") else (0, 0, sw, sh)
+        cw, ch = window(pw, ph, W, H, s.get("zoom", 1.0))
+        (fx, fy), _ = focus_of(s)
+        cx = px + min(max(fx * pw, cw / 2), pw - cw / 2)
+        cy = py + min(max(fy * ph, ch / 2), ph - ch / 2)
+        k = W / cw   # source pixels -> timeline pixels
+        out.append((round(k / fit, 4), round((sw / 2 - cx) * k, 1), round((cy - sh / 2) * k, 1)))
+    return out or [(band_zoom, 0.0, 0.0)]
+
 def edl(edit: dict, fps: int, title: str = "NookCut Edit") -> str:
     offset = timecode_seconds(edit.get("source_timecode", "00:00:00:00"), edit.get("source_fps", fps))
     clip = os.path.basename(edit["source"])
@@ -81,7 +104,13 @@ if tl then
     proj:SetCurrentTimeline(tl); shape(tl)
     local items = tl:GetItemListInTrack("video", 1) or {{}}
     log("EDITABLE items", #items, "expected {count}")
-    for _, it in ipairs(items) do it:SetProperty("ZoomX", {zoom}); it:SetProperty("ZoomY", {zoom}) end
+    local FRAME = {frames}  -- zoom, pan, tilt per clip (framing "full" aims each shot at its focus)
+    for k, it in ipairs(items) do
+        local f = FRAME[k] or FRAME[#FRAME]
+        it:SetProperty("ZoomX", f[1]); it:SetProperty("ZoomY", f[1])
+        if f[2] ~= 0 then it:SetProperty("Pan", f[2]) end
+        if f[3] ~= 0 then it:SetProperty("Tilt", f[3]) end
+    end
     if music then
         mp:AppendToTimeline({{ {{ mediaPoolItem = music, startFrame = 0, endFrame = math.floor(LEN * fps),
             trackIndex = 1, mediaType = 2, recordFrame = tl:GetStartFrame() }} }})
@@ -118,9 +147,10 @@ def resolve_kit(edit: dict, kit_dir: str, render_path: str = "", music_path: str
                 f.write(f"{start:.3f}\t{MARKER_COLORS.get(s['kind'], 'Blue')}\t{txt}\n")
     # vertical: show a 1.2:1 band of the 16:9 source across the full width, like the ffmpeg render
     zoom = round((16 / 9) / 1.2, 3) if edit["orientation"] == "vertical" else 1.0
+    frames = "{" + ", ".join("{%g, %g, %g}" % f for f in resolve_frames(edit, zoom)) + "}"
     lua = LUA.format(kit=os.path.abspath(kit_dir), source=edit["source"], render=render_path, music=music_path,
                      name=name, w=edit["width"], h=edit["height"], length=total(edit),
-                     count=len(edit["segments"]), zoom=zoom)
+                     count=len(edit["segments"]), frames=frames)
     lua_path = os.path.join(kit_dir, "build_timeline.lua")
     with open(lua_path, "w", encoding="utf-8") as f:
         f.write(lua)
