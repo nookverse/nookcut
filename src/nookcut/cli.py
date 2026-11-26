@@ -5,8 +5,8 @@
                      [--region India] [--language en] [--music ai|none|file] [--music-file x.mp3]
   nookcut analyze PROJECT
   nookcut plan PROJECT [--template comeback|victory|highlights|tighten|clip]
-  nookcut framing PROJECT band|full|split   blurred bands (default), the picture filling the frame,
-                                            or facecam/minimap on top of the action (vertical)
+  nookcut framing PROJECT band|split   blurred bands (default), or facecam/minimap on top of the
+                                      action (vertical)
   nookcut preview PROJECT
   nookcut music PROJECT [--style taiko|pulse|cinematic]
   nookcut render PROJECT
@@ -72,8 +72,8 @@ def _brief_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--copy-pack", default="", help="a caption/title style pack (nookcut copy packs)")
     p.add_argument("--broll-dir", default="", help="folder of your own clips/pictures to show as B-roll")
     p.add_argument("--hdr", default="sdr", help="HDR sources: sdr (convert, plays everywhere) | keep (HDR10/HLG HEVC)")
-    p.add_argument("--framing", default="band", help="band (sharp band over a blurred copy) | full (the picture "
-                   "fills the frame) | split (vertical: facecam, or the minimap, on top; the action below)")
+    p.add_argument("--framing", default="band", help="band (sharp band over a blurred copy) | split (vertical: "
+                   "facecam, or the minimap, on top; the action below)")
     p.add_argument("--facecam", default="", help='split: the webcam box "x,y,w,h" (fractions) or a webcam file')
     p.add_argument("--facecam-offset", type=float, default=0.0, help="seconds the webcam file started after the recording")
     p.add_argument("--minimap", default="", help='split: the minimap box "x,y,w,h" (default: found automatically)')
@@ -245,8 +245,9 @@ def _main(argv: list[str] | None = None) -> int:
     for name in ("analyze", "preview", "render"):
         sub.add_parser(name).add_argument("project")
     pp = sub.add_parser("plan"); pp.add_argument("project"); pp.add_argument("--template")
-    fm = sub.add_parser("framing", help="switch a project between band (blurred bands) and full (fills the frame)")
-    fm.add_argument("project"); fm.add_argument("framing", help="band | full")
+    fm = sub.add_parser("framing", help="switch a project between band (blurred bands) and split "
+                        "(facecam or minimap on top)")
+    fm.add_argument("project"); fm.add_argument("framing", help="band | split")
     mu = sub.add_parser("music"); mu.add_argument("project"); mu.add_argument("--style")
     rs = sub.add_parser("resolve"); rs.add_argument("project"); rs.add_argument("--render", default="")
     rs.add_argument("--proxy", action="store_true", help="also a ProRes proxy of the recording for Resolve")

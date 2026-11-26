@@ -12,8 +12,8 @@ edit.json:
 }
 framing "split" (vertical) stacks a panel on top ("panel": {"kind": "facecam"|"minimap", "box": [x, y, w, h]
 as fractions of the whole picture, or "file": a separate webcam recording, "offset": s}) over the action.
-framing "full" fills the frame with a window of the picture (no blurred fill); focus is that window's
-centre as fractions of the picture (0.5, 0.5 = middle), focus_end makes it pan there over the segment.
+In split, the action below the panel is a window of the picture; focus is that window's centre as
+fractions of the picture (0.5, 0.5 = middle), focus_end makes it pan there over the segment.
 '|' in captions forces a line break. kind drives transitions and music:
 hook, intro, death, card, highlight, slowmo, finisher, outro, end.
 """
@@ -83,8 +83,10 @@ def _point(v) -> bool:
 
 def validate(edit: dict, source_duration: float | None = None) -> list[str]:
     errors = []
-    if edit.get("framing", "band") not in ("band", "full", "split"):
-        errors.append(f"framing {edit.get('framing')!r} is unknown; use band, full or split")
+    if edit.get("framing", "band") == "full":
+        errors.append("full-bleed framing isn't available any more; use band or split (update_edit framing)")
+    elif edit.get("framing", "band") not in ("band", "split"):
+        errors.append(f"framing {edit.get('framing')!r} is unknown; use band or split")
     if edit.get("framing") == "split":
         p = edit.get("panel") or {}
         if edit.get("orientation") != "vertical":

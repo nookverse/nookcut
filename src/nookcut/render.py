@@ -5,13 +5,10 @@ Layouts (framing "band", the default)
   square    1080x1080  full 16:9 frame over a blurred fill
   wide      1920x1080  full frame, captions over the picture
 Framing "split" (vertical): the facecam (or, without one, the game's minimap) on top and the action
-below in a window aimed like "full". Panel style "card" (default, the stream-clip look): a 690x444
+below in a window aimed at the action (each segment's focus). Panel style "card" (default, the stream-clip look): a 690x444
 facecam card over a blurred copy, the action 1080x1112 under it, blur below; "full": a 1080x760 panel
 over a 1080x1160 action window. Captions sit centred on the borders of the action (half over it,
 half over the blur or panel), on a translucent slab (caption_box).
-Framing "full": any orientation is filled edge to edge by a window of the picture with the output's
-shape, placed by each segment's focus (and panned to focus_end), captions over the picture. Works for
-any source size or shape: 720p to 4K, 4:3, ultrawide, phone-vertical.
 """
 from __future__ import annotations
 
@@ -94,7 +91,7 @@ def _layout(edit: dict) -> dict:
         return {"fg_w": W, "fg_h": g["act_h"], "fg_y": g["act_y"], "crop_aspect": W / g["act_h"],
                 "top_y": below + 28, "line": 112, "big": 98, "small": 50, "bottom_y": below + 150, "speech": 100,
                 "speech_chars": 16, "hook_mid": below, "speech_mid": g["act_y"], "emphasis_y": int(H * 0.7)}
-    band = edit.get("framing") != "full"   # framing full fills the frame: no border to sit on
+    band = True   # band layouts have a top and bottom border to centre captions on
     if o == "vertical":
         return {"fg_w": 1080, "fg_h": 900, "fg_y": 470, "crop_aspect": 1.2, "top_y": 150, "line": 140,
                 "big": 120, "small": 58, "bottom_y": 1440, "speech": 112, "speech_chars": 16,
@@ -108,7 +105,7 @@ def _layout(edit: dict) -> dict:
 
 
 def window(src_w: int, src_h: int, W: int, H: int, zoom: float = 1.0) -> tuple[int, int]:
-    """Framing "full": the largest W:H window of a src_w x src_h picture, shrunk by zoom (even sizes)."""
+    """Split's action window: the largest W:H window of a src_w x src_h picture, shrunk by zoom (even sizes)."""
     zoom = max(1.0, float(zoom or 1))
     if src_w * H >= src_h * W:      # picture wider than the output: full height, cut the sides
         ch = src_h / zoom
@@ -177,7 +174,7 @@ def minimap_clear(edit: dict, s: dict, src_w: int, src_h: int, cw: int, ch: int)
 
 
 def _focus_crop(s: dict, cw: int, ch: int, dur: float) -> str:
-    """crop for framing "full": the window centred on focus, eased to focus_end over the segment,
+    """crop for split's action window: the window centred on focus, eased to focus_end over the segment,
     kept inside the picture. Fractions of iw/ih, so it holds for any decoded size."""
     (x0, y0), (x1, y1) = focus_of(s)
     p = f"min(1,t/{max(dur, 0.01):.4f})"
@@ -187,17 +184,6 @@ def _focus_crop(s: dict, cw: int, ch: int, dur: float) -> str:
         centre = f"{a:.4f}" if abs(b - a) < 1e-4 else f"({a:.4f}+({b - a:.4f})*{ease})"
         return f"'max(0,min({full}-{size},{centre}*{full}-{size}/2))'"
     return (f"crop=w='min({cw},iw)':h='min({ch},ih)':x={axis(x0, x1, 'iw', 'ow')}:y={axis(y0, y1, 'ih', 'oh')}")
-
-
-def upscale(edit: dict, s: dict | None = None) -> float | None:
-    """How much framing "full" enlarges the recording (2.7 for 720p into 1080x1920), or None if unknown."""
-    sw, sh = edit.get("source_width"), edit.get("source_height")
-    if not sw or not sh:
-        return None
-    if s and s.get("crop"):
-        sw, sh = s["crop"][2], s["crop"][3]
-    cw, _ = window(sw, sh, edit["width"], edit["height"], (s or {}).get("zoom", 1.0))
-    return round(edit["width"] / cw, 2)
 
 
 def color_plan(edit: dict, sdr_only: bool = False) -> dict:
@@ -447,13 +433,8 @@ def _segment(edit, i, s, work, font, hwaccel, src_w, src_h, task=None, on_progre
     dur = seg_duration(s)
     zoom = s.get("zoom", 1.0)
     W, H = edit["width"], edit["height"]
-    full = edit.get("framing") == "full"
     split = edit.get("framing") == "split"
-    if full:
-        # the picture fills the frame: a window of the output's shape, placed by focus
-        cw, ch = window(src_w, src_h, W, H, zoom)
-        fg_w, fg_h, x, y = W, H, 0, 0
-    elif split:
+    if split:
         # the action below the panel: a window of that area's shape, placed by focus
         geo = split_geometry(edit)
         fg_w, fg_h, x, y = W, geo["act_h"], 0, geo["act_y"]
@@ -472,13 +453,13 @@ def _segment(edit, i, s, work, font, hwaccel, src_w, src_h, task=None, on_progre
         if fg_w > W:
             fg_w, fg_h = W, int(W * ch / cw) // 2 * 2
         x, y = (W - fg_w) // 2, (H - fg_h) // 2
-    if (full or split) and focus_of(s)[0] != focus_of(s)[1]:
+    if split and focus_of(s)[0] != focus_of(s)[1]:
         # a pan: enlarge first, then move the window in output pixels, so a slow pan glides
         # instead of stepping by whole (enlarged) source pixels
         k = fg_w / cw
         fg = (f"scale={int(src_w * k) // 2 * 2}:{int(src_h * k) // 2 * 2}:flags=lanczos,"
               f"{_focus_crop(s, fg_w, fg_h, dur)},setsar=1")
-    elif full or split:
+    elif split:
         fg = f"{_focus_crop(s, cw, ch, dur)},scale={fg_w}:{fg_h}:flags=lanczos,setsar=1"
     else:
         fg = f"crop='min({cw},iw)':'min({ch},ih)',scale={fg_w}:{fg_h}"
@@ -702,7 +683,7 @@ def render(edit: dict, out_path: str, music_wav: str | None, hwaccel: str | None
 
 
 def _window_boxes(edit: dict, s: dict) -> str:
-    """Contact sheet, framing "full": outline what the viewer sees (yellow at the start, cyan where a
+    """Contact sheet, framing split: outline what the viewer sees (yellow at the start, cyan where a
     pan ends), so a wrong focus shows before anything is rendered."""
     W, H, z = edit["width"], edit["height"], max(1.0, float(s.get("zoom") or 1))
     if edit.get("framing") == "split":
@@ -765,7 +746,7 @@ def preview(edit: dict, out_png: str, task: Task | None = None) -> str:
                     at %= length   # short clips loop in the render; the sheet shows the same frame
                 label += f"  B-roll: {b['file']} ({b.get('layout', 'cover')})"
                 open(lp, "w", encoding="utf-8").write(label)
-            if edit.get("framing") in ("full", "split") and colour != "null":
+            if edit.get("framing") == "split" and colour != "null":
                 colour += _window_boxes(edit, s)
             vf = (f"{colour},scale=480:270,drawtext=fontfile={_q(font)}:textfile={_q(lp)}:fontsize=18:fontcolor=yellow"
                   f":box=1:boxcolor=black@0.7:x=6:y=6,drawtext=fontfile={_q(font)}:textfile={_q(cp)}:fontsize=26"

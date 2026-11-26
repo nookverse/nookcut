@@ -302,15 +302,7 @@ def tighten(brief: Brief, analysis: dict, words: list[list] | None = None) -> di
 
 def plan(brief: Brief, analysis: dict, template: str | None = None, words: list[list] | None = None) -> dict:
     """words: the transcript (optional); talking/tutorial videos are then cut on sentences."""
-    edit = _plan(brief, analysis, template, words)
-    if edit.get("framing") == "full" and edit.get("source_width"):
-        # framing full already enlarges the recording (2.7x for 720p); a zoom on top would look soft
-        from .render import window
-        cw, _ = window(edit["source_width"], edit["source_height"], edit["width"], edit["height"])
-        for s in edit["segments"]:
-            if s.get("zoom", 1) > 1 and edit["width"] / cw * s["zoom"] > 2.2:
-                s["zoom"] = 1.0
-    return edit
+    return _plan(brief, analysis, template, words)
 
 
 def _plan(brief: Brief, analysis: dict, template: str | None, words: list[list] | None) -> dict:
@@ -382,7 +374,7 @@ def aim(where: list | None, rate: float, a: float, b: float, crop: list | None =
 
 
 def auto_focus(edit: dict, analysis: dict) -> dict:
-    """Aim every shot at its action (used by framing full and split). A focus set by the user or the
+    """Aim every shot at its action (used by framing split). A focus set by the user or the
     agent is kept; automatic ones are marked focus_by "auto" and redone when the cut moves."""
     sig = analysis["signals"]
     info = sig["info"]

@@ -57,8 +57,8 @@ _kwargs = {"instructions": (
     f"Step by step: {WORKFLOW}. Load the 'nookcut-editor' prompt or read resource nookcut://skill for the full playbook. "
     "Long steps accept wait=false and return a job_id: poll job_status to show the user progress (percent, "
     "stage, ETA) and use cancel_job if they want to stop. Errors carry a plain-language message and a hint: "
-    "relay them to the user. Framing is band (blurred bands) by default; use framing='full' (picture fills "
-    "the frame) or 'split' (facecam, else the minimap, on top) only when the user asks. Shots are aimed at the "
+    "relay them to the user. Framing is band (blurred bands) by default; use framing='split' (facecam, else "
+    "the minimap, on top) only when the user asks. Make one vertical video; there is no full-bleed version. Shots are aimed at the "
     "action automatically: check preview_plan and fix with update_edit focus. Never post on the user's behalf.")}
 try:
     mcp = _Server("nookcut", version=__version__, **_kwargs)
@@ -270,8 +270,7 @@ def create_project(project_dir: str, source: str, title: str, video_type: str = 
     hook and end captions read aloud; write other lines yourself with update_edit "vo"). voice: a
     name from list_voices (empty = the best for the language); voice_speed 0.7-1.5. copy_pack: a
     caption/title style pack the user installed (suggest_copy lists the installed ones). framing: band
-    (default: a sharp band over a blurred copy) | full (the picture fills the whole frame, no blur or
-    borders) | split (vertical: the facecam on top, or the game's minimap when there's no facecam,
+    (default: a sharp band over a blurred copy) | split (vertical: the facecam on top, or the game's minimap when there's no facecam,
     the action below), only when the user picks it. Shots are aimed at the action automatically.
     facecam: where the webcam is in the recording as "x,y,w,h" (fractions of the picture; read it
     off get_frames), or a separate webcam recording file (facecam_offset: seconds it started after
@@ -419,12 +418,12 @@ def update_edit(project_dir: str, changes: list[dict], music_style: str = "", fr
                 panel: dict | None = None, caption_style: str = "", label: str | None = None) -> dict:
     """Change segments. Each change: {"i": index, ...fields} to update (top, bottom, src_in, src_out,
     speed, zoom, kind, words, focus, focus_end), {"i": index, "delete": true}, or
-    {"insert_at": index, "segment": {...}}. framing: band | full for the whole video, only when the user
-asks (e.g. "full screen, no blur", "facecam on top" or "back to the blurred style"); then render
+    {"insert_at": index, "segment": {...}}. framing: band | split for the whole video, only when the user
+    asks (e.g. "facecam on top", "show the minimap" or "back to the blurred style"); then render
     again. panel (framing split): {"kind": "facecam"|"minimap", "box": [x, y, w, h]} as fractions of
     the whole picture, to fix the top panel (preview_plan outlines it in magenta), "style": card|full.
     caption_style: highlight | streamer. label: the context label in the first second ("" removes it). Shots are aimed at the
-    action automatically; with framing full or split, focus [x, y] is where the shot is aimed, as fractions of the picture (0.5, 0.5 = middle; x 0.3 =
+    action automatically; with framing split, focus [x, y] is where the shot is aimed, as fractions of the picture (0.5, 0.5 = middle; x 0.3 =
     left of centre); focus_end [x, y] pans there over the segment (null = no pan); zoom 1-4 frames
     tighter. preview_plan outlines what each shot shows.
     '|' in a caption forces a line break; keep vertical lines <= 16 characters. words are the

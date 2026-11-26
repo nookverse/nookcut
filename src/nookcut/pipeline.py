@@ -81,13 +81,16 @@ def paths(project: str) -> dict:
 
 
 def set_framing(project: str, framing: str) -> dict:
-    """The user's choice of framing (band | full), saved in the brief (so a new plan keeps it) and in
+    """The user's choice of framing (band | split), saved in the brief (so a new plan keeps it) and in
     the current edit, if there is one. Cuts, captions and music are untouched; render again to see it."""
-    from .brief import FRAMINGS, canonical
+    from .brief import FRAMINGS, REMOVED_FRAMINGS, canonical
     value = canonical("framing", framing)
+    if value in REMOVED_FRAMINGS or str(value).replace(" ", "_") in REMOVED_FRAMINGS:
+        raise InputError("Full-bleed framing isn't available; NookCut makes one vertical video.",
+                         "Use band (a sharp band over a blurred copy) or split (facecam or minimap on top).")
     if value not in FRAMINGS:
         raise InputError(f"'{framing}' isn't a framing NookCut knows.",
-                         "Use band (a sharp band over a blurred copy) or full (the picture fills the frame).")
+                         "Use band (a sharp band over a blurred copy) or split (facecam or minimap on top).")
     p = paths(project)
     _need(p["brief"], "create_project (nookcut new)", "brief")
     brief = Brief.load(p["brief"])
@@ -107,7 +110,7 @@ def set_framing(project: str, framing: str) -> dict:
         out = describe(edit)
     out["next"] = ("check each shot's aim on preview_plan (shots are aimed at the action automatically; fix with "
                    "update_edit focus)" + (" and the top panel (magenta)" if value == "split" else "") + ", then render again"
-                   if value in ("full", "split") else "render again to see it")
+                   if value == "split" else "render again to see it")
     return out
 
 
@@ -308,16 +311,9 @@ def describe(edit: dict) -> dict:
          **({"focus": s.get("focus") or [0.5, 0.5], **({"focus_end": s["focus_end"]} if s.get("focus_end") else {}),
              **({"aimed": "automatically"} if s.get("focus_by") == "auto" else {}),
              **({"zoom": s["zoom"]} if s.get("zoom", 1) != 1 else {})}
-            if edit.get("framing") in ("full", "split") else {})}
+            if edit.get("framing") == "split" else {})}
         for i, (st, d, s) in enumerate(ed.timeline(edit))], "speech_captions": bool(edit.get("subtitles")),
         "framing": edit.get("framing", "band")}
-    if edit.get("framing") == "full":
-        from .render import upscale
-        up = max([u for u in (upscale(edit, s) for s in edit["segments"]) if u] or [0]) or None
-        out["framing_note"] = ("The picture fills the frame; each shot shows a window around its focus. "
-                               "Check preview_plan: the outline is what the viewer sees."
-                               + (f" The recording is enlarged up to {up:g}x" + (", so it will look soft." if up > 2.5 else ".")
-                                  if up else ""))
     if edit.get("framing") == "split":
         out["panel"] = panel_note(edit.get("panel") or {})
     if edit.get("hook_note"):

@@ -24,10 +24,9 @@ included), and writes a publish kit with titles, hashtags and region-aware posti
   highlighted. Talking videos are cut on whole sentences. Without the model, everything else still works.
 - **HDR handled.** PS5/Xbox HDR captures and iPhone HDR video are tone-mapped to normal colour (on the
   Apple GPU when available), or kept as 10-bit HDR10/HLG with `--hdr keep`.
-- **Any recording size.** 720p to 4K, 4:3, ultrawide and phone-vertical recordings all fit. With
-  `framing: full` the picture fills the vertical frame edge to edge (no blurred bars); with
-  `framing: split` the facecam (or, without one, the game's minimap) sits on top and the action below.
-  Shots are aimed at the action automatically, and can be re-aimed and panned.
+- **Any recording size.** 720p to 4K, 4:3, ultrawide and phone-vertical recordings all fit, as one
+  vertical video. With `framing: split` the facecam (or, without one, the game's minimap) sits on top
+  and the action below, aimed at the action automatically (re-aim and pan with `focus`).
 - **Stream clips.** `--template clip --framing split --facecam … --caption-style streamer --label
   "ARGONAUT|OPERATOR" --term Argonaut` gives the stream-clip look: one continuous take ending on the
   payoff, a facecam card over blur with the gameplay big below, one or two words of captions at a
@@ -237,7 +236,7 @@ The same options work as CLI flags (`nookcut new` / `make`) and as arguments of 
 | `video_type` (`--type`) | gameplay if a game is set, else generic | `gameplay`, `talking`, `sports`, `tutorial`, `generic` |
 | `game` (`--game`) | none | Game name, for gameplay |
 | `orientation` (`--orientation`) | `vertical` | `vertical` (9:16), `square` (1:1), `wide` (16:9) |
-| `framing` (`--framing`) | `band` | `band`: a sharp band over a blurred copy. `full`: the picture fills the frame; works for any recording size or shape. `split` (vertical): the facecam, or the game's minimap, on top and the action below. Shots are aimed at the action automatically; re-aim with `focus` (and pan with `focus_end`) in `edit.json`. Change it any time with `nookcut framing PROJECT full` (or `band`, `split`), then render again |
+| `framing` (`--framing`) | `band` | `band`: a sharp band over a blurred copy. `split` (vertical): the facecam, or the game's minimap, on top and the action below; the minimap is shown only there. Shots are aimed at the action automatically; re-aim with `focus` (and pan with `focus_end`) in `edit.json`. Change it any time with `nookcut framing PROJECT split` (or `band`), then render again |
 | `facecam` (`--facecam`) | none | Split: the webcam's box in the recording, `x,y,w,h` as fractions of the picture, or a separate webcam recording (`--facecam-offset` seconds after the recording). Without it the minimap is shown |
 | `minimap` (`--minimap`) | found automatically | Split without a facecam: the minimap's box `x,y,w,h` (default: the screen corner that stays still) |
 | `panel_style` (`--panel-style`) | `card` | Split: `card` (a facecam card over blur, gameplay big below) or `full` (a full-width panel) |

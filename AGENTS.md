@@ -56,7 +56,7 @@ src/nookcut/
   subtitles.py   word-by-word .ass captions for the render, .srt for export
   edit.py        the edit.json contract (segments, kinds, validation)
   music.py       procedural score (taiko | pulse | cinematic), mastered with ffmpeg
-  render.py      parallel per-segment render + concat + audio mix; framing (band | full + focus); preview sheet
+  render.py      parallel per-segment render + concat + audio mix; framing (band | split + focus); preview sheet
   config.py      ~/.config/nookcut/config.env (NOOKCUT_* settings for the CLI and the shared server)
   adapters/      programs NookCut runs but never imports (kokoro_say.py, run by the user's Kokoro Python)
   script.py      script to video: lines, narration timing, per-line B-roll (script_to_video)
@@ -154,9 +154,9 @@ playbook (see `gemini-extension.json`), not contributor guidance.
   untested (test-encoded before use). Moment detection reads HDR brightness without tone mapping.
   Dolby Vision / HDR10+ dynamic metadata are dropped (the base picture is used); Dolby Vision
   profile 5 is refused. Output is at most 60 fps (high frame rate sources feed real-frame slow motion).
-- `framing: full` sets each Resolve clip's Pan/Tilt from its focus; the sign and units are assumed,
-  not yet checked in Resolve, and pans (`focus_end`) aren't carried over. `framing: split`'s top panel
-  isn't rebuilt in Resolve at all (the FINAL timeline has it).
+- `framing: split`'s top panel and shot aims aren't rebuilt in Resolve (the EDITABLE timeline is the
+  band crop; the FINAL timeline has the whole video). Full-bleed framing was removed on purpose: one
+  vertical video per request.
 - Automatic aim follows where the 64x36 scan sees motion; it can pick a moving crowd or effect over
   the player. The minimap guess is the largest still screen corner, so it can include still HUD or
   scenery next to the map. Neither looks for faces: a facecam must be given (`facecam`).

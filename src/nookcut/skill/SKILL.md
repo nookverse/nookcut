@@ -62,7 +62,7 @@ download they run themselves; after that it works offline), and carry on without
 | game | game name, if gameplay | - |
 | platforms | YouTube Shorts, TikTok, Reels, Facebook Reels, YouTube | Shorts + TikTok + Reels |
 | orientation | vertical / square / wide | from platforms |
-| framing | band (sharp band over a blurred copy), full (the picture fills the frame) or split (vertical: facecam, else the minimap, on top; the action below); see "Framing" | band; full or split only when the user picks it |
+| framing | band (sharp band over a blurred copy) or split (vertical: facecam, else the minimap, on top; the action below); see "Framing" | band; split only when the user picks it |
 | facecam | split: where their webcam is in the recording ("x,y,w,h" fractions, read off `get_frames`), or a separate webcam file (+ `facecam_offset` seconds) | none: the minimap is used |
 | caption_box | a translucent dark slab behind captions; captions sit centred on the gameplay's borders (half over the gameplay, half over the blur or the panel) | on |
 | caption_style | highlight (a phrase, the spoken word yellow) or streamer (1-2 word cards, hard cuts; shouted or sworn words red and lower) | highlight; streamer for stream clips |
@@ -189,16 +189,11 @@ claim. Keep it to the 3-5 most useful points.
 ## Framing: any game, any recording size
 
 NookCut takes any recording: 720p to 4K, 4:3, ultrawide (21:9, 32:9), phone-vertical, HDR, 30 to
-120 fps. The analysis `info` line gives its size. There are three ways to fill a vertical frame
-(band and full also work for square):
+120 fps. The analysis `info` line gives its size. Make **one vertical video** per request, for every
+platform (Facebook Reels included): no second full-bleed version, and don't offer one. Two layouts:
 
-- **band** (the default): a sharp band of the picture over a blurred, darker copy, with captions on
-  the blur. It keeps more of the screen, so it suits strategy games, menus, maps and small text.
-- **full**: the picture fills the whole frame with no blur or borders, and each shot shows a window
-  of it, aimed by you. Some creators report less Facebook Reels reach for blurred-background or
-  bordered clips, and Meta's originality guidance names "adding borders" as a low-value edit to
-  someone else's content. Facebook hasn't published a rule on blurred backgrounds, so present this
-  as creator reports, not fact.
+- **band** (the default): a sharp band of the picture over a blurred, darker copy. It keeps more of
+  the screen, so it suits strategy games, menus, maps and small text.
 - **split** (vertical only): a panel on top and the action below, the usual gaming-Shorts look. The
   panel is the streamer's **facecam** when there is one (`facecam`: its box in the recording, or a
   separate webcam file), and otherwise the game's **minimap**, found as the screen corner that stays
@@ -207,33 +202,32 @@ NookCut takes any recording: 720p to 4K, 4:3, ultrawide (21:9, 32:9), phone-vert
   `update_edit` `panel: {"box": [x, y, w, h]}`. Offer split when the recording has a facecam, or for
   shooters and MOBAs with a minimap.
 
-**The user decides, and can change it any time.** Use band unless the user picks full. Never
-switch on your own, even for Facebook. When the platforms include Facebook Reels, or the user
-mentions blur, borders, bars or "full screen", add one line to the brief message: "Blurred band
-(the default) or full-bleed (the gameplay fills the screen)?" Don't ask again after they answer.
-- Before planning: `create_project` / `auto_edit` with `framing`.
-- After a plan or a render: when the user says "make it full-bleed / full screen / no blur" or
-  "back to the blurred style" or "facecam on top", call `update_edit` with `framing` (`full`, `band`
-  or `split`). Cuts, captions,
-  music and voiceover stay as they are; with full, aim the shots (below), show `preview_plan`, then
-  `render_video` again. It's also saved in the brief, so a later `plan_edit` keeps it.
-- In a terminal: `nookcut framing <project> full` (or `band`, `split`), then `nookcut render <project>`.
+Captions sit centred on the borders of the gameplay (half over it, half over the blur or the
+panel), on a translucent slab (`caption_box`).
 
-**Check the aim of every shot** (framing full and split). A 9:16 window of a 16:9 recording is under a
-third of its width, so the centre is often wrong. NookCut aims each shot at where the picture moves
-(the plan marks those `aimed: automatically`) and keeps the middle when the whole picture moves (a
-camera turn) or nothing does. Check it on `preview_plan`; to fix a shot, look at the recording with
-`get_frames` (`source: true`) and set that segment's `focus` with `update_edit` (a focus you set is
-never changed again; `null` hands it back to automatic aiming). Focus is `[x, y]` as fractions of the picture: `[0.5, 0.5]` is
-the middle, `[0.3, 0.5]` is left of centre. The same numbers work at any resolution.
+**The user decides, and can change it any time.** Use band unless the user picks split.
+- Before planning: `create_project` / `auto_edit` with `framing`.
+- After a plan or a render: when the user says "facecam on top", "show the minimap" or "back to the
+  blurred style", call `update_edit` with `framing` (`split` or `band`). Cuts, captions, music and
+  voiceover stay as they are; show `preview_plan`, then `render_video` again. It's also saved in the
+  brief, so a later `plan_edit` keeps it.
+- If the user asks for full screen or no blur, say NookCut makes the band or split layout, and offer split.
+- In a terminal: `nookcut framing <project> split` (or `band`), then `nookcut render <project>`.
+
+**Check the aim of every shot** (split). The action window is a part of the recording's width, so the
+centre is often wrong. NookCut aims each shot at where the picture moves (the plan marks those
+`aimed: automatically`) and keeps the middle when the whole picture moves (a camera turn) or nothing
+does. Check it on `preview_plan`; to fix a shot, look at the recording with `get_frames` (`source:
+true`) and set that segment's `focus` with `update_edit` (a focus you set is never changed again;
+`null` hands it back to automatic aiming). Focus is `[x, y]` as fractions of the picture: `[0.5, 0.5]`
+is the middle, `[0.3, 0.5]` is left of centre. The same numbers work at any resolution.
 - First-person shooters: the crosshair sits at the middle, so `[0.5, 0.5]` usually works.
-- Third-person and open-world games: aim at the character, usually a little below the middle, or at
-  whatever they are looking at.
-- Racing: the car, low in the frame. Sports and fighting games: the ball or both fighters; if they
-  are far apart, use band for that video.
+- Third-person and open-world games: aim at the character, or at whatever they are looking at.
+- Racing: the car. Sports and fighting games: the ball or both fighters; if they are far apart,
+  use band for that video.
 - When the action moves across the screen (a walk, a chase, a reveal), add `focus_end` and the shot
   eases there over the segment. Use one slow pan per shot and none during fast action.
-- `zoom` 1.5-2 frames tighter (a face, an item), but it enlarges the recording further.
+- `zoom` 1.5-2 frames tighter (a face, an item), but it enlarges the recording.
 
 `preview_plan` outlines each window on the contact sheet (yellow at the start, cyan where a pan
 ends). Fix the focus until the subject is inside every outline, then show the user. Automatic aims
@@ -241,28 +235,10 @@ follow motion, so they can pick a moving crowd or a flashing effect over the pla
 If you can't see images, ask the user where the action is in each shot ("left, middle or right?")
 and use 0.25, 0.5 or 0.75; if they don't know, keep the middle, or use band for that video.
 
-**Recording size.** The window is enlarged to 1080x1920:
-
-| Recording | Window | Enlarged |
-|---|---|---|
-| 4K (3840x2160) | 1214x2160 | none, sharp |
-| 1440p | 810x1440 | 1.3x |
-| 1080p, 4:3, 21:9, 32:9 at 1080 lines | 606x1080 | 1.8x |
-| 720p | 404x720 | 2.7x, soft |
-| phone-vertical | the whole picture | none |
-
-A `zoom` multiplies these. The plan's `framing_note` and the render `checks` report the
-largest enlargement (checks flag anything over 3x). On 720p recordings, keep `zoom` at 1, tell the user the picture will be soft, and suggest recording at 1080p or higher next
-time. Ultrawide recordings show the smallest share of the screen, so aim them carefully.
-
-**What full framing brings back.** The band layout cut off the top and bottom of the screen; full
-framing shows the whole height, and with it everything at the edges: player names and gamer tags,
-chat, party lists, notifications, the game's own subtitles (which may carry swearing), HUD pop-ups
-and gore. **Player names and gamer tags are fine to show**, in vertical and wide videos alike: don't
-re-aim, zoom or pick another moment to hide them, and don't ask for them to be blurred. For chat,
-notifications, subtitles with swearing and gore, aim or zoom the window away, or pick another
-moment, and check the rendered frames (`verify_video`). The corner HUD (minimap, health, kill feed) is
-often cut off; let the captions carry the story, or use split to show the minimap.
+**What to leave in or out.** **Player names and gamer tags are fine to show**, in vertical and wide
+videos alike: don't re-aim, zoom or pick another moment to hide them, and don't ask for them to be
+blurred. For chat, notifications, the game's subtitles with swearing, and gore, aim or zoom the
+window away, or pick another moment, and check the rendered frames (`verify_video`).
 
 **The minimap shows once.** In split framing without a facecam, the minimap is in the top panel,
 so NookCut moves each shot's window off the minimap in the action below (the preview's yellow outline
@@ -290,8 +266,8 @@ that Resolve uses while editing and swaps back for the final render.
 **Check before you hand over.** `render_video` (and `auto_edit`) return `checks`: if `issues` is not
 empty, tell the user each one and offer a fix. If you can see images, look at the frames too:
 `verify_video` gives one per segment, `get_frames` any times you want (`source: true` for the
-original). Check that captions fit, the crop shows the action (with framing full: the subject in
-every shot), and nothing private is on screen.
+original). Check that captions fit, the crop shows the action (with split: the subject in
+every shot, the minimap only in the panel), and nothing private is on screen.
 Never say the video is fine without having checked.
 
 **Long steps (analyze, render): keep the user informed.** Start them with `wait=false`, then poll

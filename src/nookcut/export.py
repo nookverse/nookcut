@@ -20,26 +20,9 @@ def _tc(seconds: float, fps: int) -> str:
 
 
 def resolve_frames(edit: dict, band_zoom: float) -> list[tuple[float, float, float]]:
-    """(zoom, pan, tilt) per clip on the EDITABLE timeline. Resolve first scales a clip to fit the
-    timeline; framing "full" then zooms until the focus window fills it and moves it there (pan in
-    timeline pixels, assumed + = right; tilt, assumed + = up: not yet checked in Resolve). A pan
-    (focus_end) is left to the editor."""
-    sw, sh = edit.get("source_width"), edit.get("source_height")
-    if edit.get("framing") != "full" or not sw or not sh:
-        return [(band_zoom, 0.0, 0.0)] * max(1, len(edit["segments"]))
-    from .render import focus_of, window
-    W, H = edit["width"], edit["height"]
-    fit = min(W / sw, H / sh)
-    out = []
-    for s in edit["segments"]:
-        px, py, pw, ph = s["crop"] if s.get("crop") else (0, 0, sw, sh)
-        cw, ch = window(pw, ph, W, H, s.get("zoom", 1.0))
-        (fx, fy), _ = focus_of(s)
-        cx = px + min(max(fx * pw, cw / 2), pw - cw / 2)
-        cy = py + min(max(fy * ph, ch / 2), ph - ch / 2)
-        k = W / cw   # source pixels -> timeline pixels
-        out.append((round(k / fit, 4), round((sw / 2 - cx) * k, 1), round((cy - sh / 2) * k, 1)))
-    return out or [(band_zoom, 0.0, 0.0)]
+    """(zoom, pan, tilt) per clip on the EDITABLE timeline: the band's zoom for every clip (Resolve
+    scales a clip to fit the timeline first; pan and tilt stay at 0, the editor aims by hand)."""
+    return [(band_zoom, 0.0, 0.0)] * max(1, len(edit["segments"]))
 
 def edl(edit: dict, fps: int, title: str = "NookCut Edit") -> str:
     offset = timecode_seconds(edit.get("source_timecode", "00:00:00:00"), edit.get("source_fps", fps))
@@ -109,7 +92,7 @@ if tl then
     proj:SetCurrentTimeline(tl); shape(tl)
     local items = tl:GetItemListInTrack("video", 1) or {{}}
     log("EDITABLE items", #items, "expected {count}")
-    local FRAME = {frames}  -- zoom, pan, tilt per clip (framing "full" aims each shot at its focus)
+    local FRAME = {frames}  -- zoom, pan, tilt per clip
     for k, it in ipairs(items) do
         local f = FRAME[k] or FRAME[#FRAME]
         it:SetProperty("ZoomX", f[1]); it:SetProperty("ZoomY", f[1])
