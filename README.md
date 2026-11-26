@@ -230,7 +230,7 @@ The same options work as CLI flags (`nookcut new` / `make`) and as arguments of 
 | `game` (`--game`) | none | Game name, for gameplay |
 | `orientation` (`--orientation`) | `vertical` | `vertical` (9:16), `square` (1:1), `wide` (16:9) |
 | `framing` (`--framing`) | `band` | `band`: a sharp band over a blurred copy. `full`: the picture fills the frame, each shot aimed with `focus` (and panned with `focus_end`) in `edit.json`; works for any recording size or shape. Change it any time with `nookcut framing PROJECT full` (or `band`), then render again |
-| `max_duration` (`--max`) | `60` | Length limit: `45`, `45s`, `1:30` |
+| `max_duration` (`--max`) | `60` | Length limit: `45`, `45s`, `1:30`. Vertical videos are capped at 140 s |
 | `platforms` (`--platforms`) | Shorts, TikTok, Reels | `youtube_shorts`, `tiktok`, `instagram_reels`, `facebook_reels`, `youtube`, `x` |
 | `region` (`--region`) | global | Audience region for posting times, e.g. `India`, `United States` |
 | `language` (`--language`) | `en` | Caption language ([packs](#captions-in-other-languages)) |
