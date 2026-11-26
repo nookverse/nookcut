@@ -238,6 +238,8 @@ another moment. Check the rendered frames (`verify_video`) for this every time. 
 
 `generate_music` (skip if music is none) -> `render_video` with `file_name` from `suggest_copy` (or a
 keyword-rich one from research) -> `export_resolve` (pass the render path) so they can fine-tune in DaVinci Resolve.
+If they will edit a long or 4K recording in Resolve, offer `proxy=true`: a light ProRes copy (a few GB)
+that Resolve uses while editing and swaps back for the final render.
 
 **Check before you hand over.** `render_video` (and `auto_edit`) return `checks`: if `issues` is not
 empty, tell the user each one and offer a fix. If you can see images, look at the frames too:

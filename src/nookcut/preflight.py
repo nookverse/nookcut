@@ -199,4 +199,67 @@ def check() -> dict:
         report["install"] = ("Your ffmpeg build lacks required parts; install a full build: " + install_hint())
     report["ok"] = not report["missing"]
     report["speech_to_text"] = speech_status()  # optional: word-by-word captions from what is said
+    report["machine"] = dict(machine(), render_workers=render_workers())
     return report
+
+
+# ---------- the computer itself: how many renders to run at once ----------
+
+GB = 1024 ** 3
+
+
+@functools.lru_cache(maxsize=1)
+def machine() -> dict:
+    """Memory, CPU count and whether this is a fanless laptop (MacBook Air), read once per process."""
+    try:
+        memory = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+    except (ValueError, OSError, AttributeError):  # Windows has no sysconf
+        memory = 0
+    model = ""
+    if platform.system() == "Darwin":
+        # the model identifier (Mac15,12) no longer says "Air", the model name does
+        m = re.search(r"Model Name:\s*(.+)", _out(["system_profiler", "SPHardwareDataType"]))
+        model = m.group(1).strip() if m else ""
+    return {"memory_gb": round(memory / GB, 1) if memory else None, "cpus": os.cpu_count() or 2,
+            "model": model or None, "fanless": "MacBook Air" in model}
+
+
+def pick_workers(cpus: int, memory_gb: float | None, fanless: bool) -> int:
+    """Segments rendered at once: half the cores, at most 4, about one per 4 GB of memory (4K segments
+    with slow motion take 1-2 GB each), and at most 2 on a fanless laptop, which slows down when hot."""
+    n = min(4, max(1, cpus // 2))
+    if memory_gb:
+        n = min(n, max(1, int(memory_gb // 4)))
+    if fanless:
+        n = min(n, 2)
+    return n
+
+
+def render_workers() -> int:
+    """NOOKCUT_WORKERS wins; otherwise what this computer can take comfortably."""
+    try:
+        return max(1, int(os.environ["NOOKCUT_WORKERS"]))
+    except (KeyError, ValueError):
+        m = machine()
+        return pick_workers(m["cpus"], m["memory_gb"], m["fanless"])
+
+
+# ---------- ProRes for DaVinci Resolve ----------
+
+# Apple's ProRes hardware first (10-bit 4:2:2), then ffmpeg's own encoder, which works everywhere.
+PRORES = (("prores_videotoolbox", ["-profile:v", "proxy", "-pix_fmt", "p210le"], "Apple ProRes hardware"),
+          ("prores_ks", ["-profile:v", "0", "-pix_fmt", "yuv422p10le"], "CPU"))
+
+
+@functools.lru_cache(maxsize=1)
+def pick_prores() -> tuple[str, list[str], str] | None:
+    """(encoder, args, label) for ProRes 422 Proxy that really encodes here, or None."""
+    for name, args, label in PRORES:
+        cmd = ["ffmpeg", "-v", "error", "-nostdin", "-f", "lavfi", "-i", "color=c=gray:s=640x360:r=30:d=0.2",
+               "-c:v", name, *args, "-f", "null", "-"]
+        try:
+            if subprocess.run(cmd, capture_output=True, timeout=30).returncode == 0:
+                return name, args, label
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    return None

@@ -392,6 +392,48 @@ class Export(unittest.TestCase):
         self.assertIn("01:06:", text)          # 400 s + 1h source timecode
         self.assertIn("M2   AX       030.0", text)
 
+    def test_proxy_is_half_size_prores_with_timecode_and_sound(self):
+        from nookcut.export import proxy_cmd
+        e = {"source": "/x.mov", "source_timecode": "01:00:00:00"}
+        cmd = proxy_cmd(e, "/out.mov", ("prores_videotoolbox", ["-profile:v", "proxy"], "GPU"), apple=True)
+        self.assertEqual(cmd[cmd.index("-hwaccel") + 1], "videotoolbox")
+        self.assertEqual(cmd[cmd.index("-timecode") + 1], "01:00:00:00")
+        self.assertIn("scale=trunc(iw/4)*2:-2", cmd)
+        self.assertIn("0:a?", cmd)
+        self.assertEqual(cmd[-1], "/out.mov")
+        cpu = proxy_cmd({"source": "/x.mov"}, "/o.mov", ("prores_ks", ["-profile:v", "0"], "CPU"))
+        self.assertNotIn("-hwaccel", cpu)
+        self.assertNotIn("-timecode", cpu)
+
+    def test_lua_links_the_proxy_only_when_there_is_one(self):
+        import tempfile
+        from nookcut.export import resolve_kit
+        e = plan(Brief(title="t", source="/x.mov", game="g"), fake_analysis())
+        with tempfile.TemporaryDirectory() as d:
+            out = resolve_kit(e, d, proxy_path="/p/x_proxy.mov")
+            lua = open(out["lua"]).read()
+            self.assertIn("local PROXY = [[/p/x_proxy.mov]]", lua)
+            self.assertIn("LinkProxyMedia(PROXY)", lua)
+            self.assertEqual(out["proxy"], "/p/x_proxy.mov")
+            self.assertNotIn("proxy", resolve_kit(e, d))
+
+
+class Machine(unittest.TestCase):
+    def test_workers_follow_cores_memory_and_cooling(self):
+        from nookcut.preflight import pick_workers
+        self.assertEqual(pick_workers(18, 48, False), 4)   # MacBook Pro: capped at 4
+        self.assertEqual(pick_workers(8, 8, False), 2)     # 8 GB: about one per 4 GB
+        self.assertEqual(pick_workers(10, 24, True), 2)    # MacBook Air: no fan
+        self.assertEqual(pick_workers(2, 4, False), 1)
+        self.assertEqual(pick_workers(16, None, False), 4)  # memory unknown
+
+    def test_env_overrides_the_machine(self):
+        import os
+        from unittest import mock
+        from nookcut.preflight import render_workers
+        with mock.patch.dict(os.environ, {"NOOKCUT_WORKERS": "7"}):
+            self.assertEqual(render_workers(), 7)
+
 
 class Publish(unittest.TestCase):
     def test_bangladesh_weekend_is_fri_sat(self):

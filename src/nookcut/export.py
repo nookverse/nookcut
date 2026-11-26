@@ -61,6 +61,7 @@ local KIT = [[{kit}]]
 local SOURCE = [[{source}]]
 local RENDER = [[{render}]]
 local MUSIC = [[{music}]]
+local PROXY = [[{proxy}]]
 local NAME = [[{name}]]
 local W, H, LEN = "{w}", "{h}", {length}
 local logf = io.open(KIT .. "/resolve_log.txt", "w")
@@ -83,7 +84,11 @@ local function import(path)
     if items and items[1] then return items[1] end
     log("import failed", path)
 end
-import(SOURCE)
+local src = import(SOURCE)
+if src and PROXY ~= "" then
+    -- edit on the light ProRes copy; Resolve still renders from the original recording
+    log(src:LinkProxyMedia(PROXY) and "proxy linked" or "proxy link failed", PROXY)
+end
 local final = import(RENDER)
 local music = import(MUSIC)
 local function shape(tl)
@@ -133,8 +138,20 @@ MARKER_COLORS = {"hook": "Red", "intro": "Blue", "death": "Red", "card": "Yellow
                  "slowmo": "Green", "finisher": "Red", "outro": "Purple", "end": "Cyan"}
 
 
+def proxy_cmd(edit: dict, out: str, encoder: tuple[str, list[str], str], apple: bool = False) -> list[str]:
+    """ffmpeg command for a ProRes 422 Proxy copy of the whole recording at half size (4K -> 1080p),
+    with its sound and timecode, so Resolve can link it to the original as proxy media."""
+    name, args, _ = encoder
+    cmd = ["ffmpeg", "-v", "error", "-y"] + (["-hwaccel", "videotoolbox"] if apple else [])
+    cmd += ["-i", edit["source"], "-map", "0:v:0", "-map", "0:a?", "-map_metadata", "0",
+            "-vf", "scale=trunc(iw/4)*2:-2", "-c:v", name, *args, "-c:a", "pcm_s16le"]
+    if edit.get("source_timecode"):
+        cmd += ["-timecode", edit["source_timecode"]]
+    return cmd + ["-f", "mov", out]
+
+
 def resolve_kit(edit: dict, kit_dir: str, render_path: str = "", music_path: str = "",
-                name: str = "NookCut Short") -> dict:
+                name: str = "NookCut Short", proxy_path: str = "") -> dict:
     """Write cut_<fps>.edl files, markers.txt, build_timeline.lua and (with speech) captions.srt."""
     os.makedirs(kit_dir, exist_ok=True)
     for fps in FPS_CHOICES:
@@ -149,13 +166,15 @@ def resolve_kit(edit: dict, kit_dir: str, render_path: str = "", music_path: str
     zoom = round((16 / 9) / 1.2, 3) if edit["orientation"] == "vertical" else 1.0
     frames = "{" + ", ".join("{%g, %g, %g}" % f for f in resolve_frames(edit, zoom)) + "}"
     lua = LUA.format(kit=os.path.abspath(kit_dir), source=edit["source"], render=render_path, music=music_path,
-                     name=name, w=edit["width"], h=edit["height"], length=total(edit),
+                     proxy=proxy_path, name=name, w=edit["width"], h=edit["height"], length=total(edit),
                      count=len(edit["segments"]), frames=frames)
     lua_path = os.path.join(kit_dir, "build_timeline.lua")
     with open(lua_path, "w", encoding="utf-8") as f:
         f.write(lua)
     out = {"kit": kit_dir, "lua": lua_path,
            "how_to_run": f'In Resolve: Workspace > Console > Lua, then: dofile("{os.path.abspath(lua_path)}")'}
+    if proxy_path:
+        out["proxy"] = proxy_path
     if any(s.get("broll") for s in edit["segments"]):
         out["note"] = ("B-roll isn't in the Resolve timeline yet: the EDL has the main recording only. Add the "
                        "B-roll clips on track 2 by hand, at the times listed in markers.txt.")

@@ -531,12 +531,18 @@ def verify_video(project_dir: str, video_path: str = "") -> list:
 
 
 @_tool(annotations=WRITES)
-def export_resolve(project_dir: str, render_path: str = "") -> dict:
+def export_resolve(project_dir: str, render_path: str = "", proxy: bool = False, wait: bool = True) -> dict:
     """Write EDLs + a Lua script that rebuilds the edit as an editable DaVinci Resolve timeline
-    (free Resolve: Workspace > Console > Lua). Returns how to run it."""
-    out = pl.make_resolve(_path(project_dir, must_exist=True), _path(render_path))
-    out["next"] = "write_publish_kit"
-    return out
+    (free Resolve: Workspace > Console > Lua). Returns how to run it. proxy=true also makes a half-size
+    ProRes copy of the whole recording, linked as proxy media so editing stays smooth (a few minutes per
+    hour of footage, a few GB; Apple ProRes hardware when present); wait=false returns a job_id."""
+    p = _path(project_dir, must_exist=True)
+
+    def work(t=None):
+        out = pl.make_resolve(p, _path(render_path), proxy, t)
+        out["next"] = "write_publish_kit"
+        return out
+    return _run("export_resolve", p, work, wait) if proxy else work()
 
 
 @_tool(annotations=READ_ONLY)

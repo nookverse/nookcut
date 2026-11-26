@@ -491,12 +491,44 @@ def frame_sheet(project: str, times: list | None = None, source: bool = False, c
             "video": os.path.abspath(video)}
 
 
-def make_resolve(project: str, render_path: str = "") -> dict:
+def make_resolve(project: str, render_path: str = "", proxy: bool = False, task: Task | None = None) -> dict:
+    """The Resolve kit; proxy=True also makes a light ProRes copy of the recording for smooth editing."""
     p = paths(project)
+    _need(p["edit"], "plan_edit (nookcut plan)", "edit plan")
     edit = ed.load(p["edit"])
     music = p["music"] if os.path.exists(p["music"]) else ""
+    proxy_path = ""
+    if proxy:
+        with job(project, "resolve", task) as t:
+            proxy_path = _make_proxy(edit, p["resolve"], t)
     return resolve_kit(edit, p["resolve"], os.path.abspath(render_path) if render_path else "",
-                       os.path.abspath(music) if music else "", edit.get("title") or "NookCut Short")
+                       os.path.abspath(music) if music else "", edit.get("title") or "NookCut Short", proxy_path)
+
+
+def _make_proxy(edit: dict, kit_dir: str, t: Task) -> str:
+    """resolve/proxy/<recording>_proxy.mov, made once (again only if the recording changed)."""
+    from .export import proxy_cmd
+    from .preflight import pick_prores
+    encoder = pick_prores()
+    if not encoder:
+        raise EnvironmentNotReady("This ffmpeg can't write ProRes, which the Resolve proxy needs.",
+                                  "Install a full ffmpeg build, or export without the proxy.")
+    source = edit["source"]
+    out = os.path.abspath(os.path.join(kit_dir, "proxy", slug(os.path.splitext(os.path.basename(source))[0])
+                                       + "_proxy.mov"))
+    if os.path.exists(out) and os.path.getmtime(out) >= os.path.getmtime(source):
+        return out
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    part = out[:-4] + ".part.mov"
+    step = f"making the ProRes proxy ({encoder[2]})"
+    t.begin(step, edit.get("source_duration") or 0)
+    try:
+        run(proxy_cmd(edit, part, encoder, apple=encoder[0].endswith("videotoolbox")), t, step, progress=t.set)
+        os.replace(part, out)
+    finally:
+        if os.path.exists(part):
+            os.remove(part)
+    return out
 
 
 def _analysis(project: str) -> dict | None:

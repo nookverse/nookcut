@@ -23,7 +23,7 @@ from .errors import EnvironmentNotReady, InputError, MediaError, explain_ffmpeg
 from . import broll as br
 from . import color
 from . import subtitles as subs
-from .preflight import encoder_args, find_font, has_filter, install_hint, pick_hdr_encoder
+from .preflight import encoder_args, find_font, has_filter, install_hint, pick_hdr_encoder, render_workers
 from .probe import hdr_of
 from .tasks import Task, _nice, filter_quote, run
 
@@ -355,10 +355,7 @@ def _segment(edit, i, s, work, font, hwaccel, src_w, src_h, task=None, on_progre
 
 
 def _workers() -> int:
-    try:
-        return max(1, int(os.environ["NOOKCUT_WORKERS"]))
-    except (KeyError, ValueError):
-        return min(4, max(1, (os.cpu_count() or 2) // 2))
+    return render_workers()
 
 
 def _mix_graph(cmd: list, edit: dict, has_src_audio: bool, music_wav: str | None, voice_wav: str | None) -> str:

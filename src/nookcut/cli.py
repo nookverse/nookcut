@@ -9,7 +9,7 @@
   nookcut preview PROJECT
   nookcut music PROJECT [--style taiko|pulse|cinematic]
   nookcut render PROJECT
-  nookcut resolve PROJECT [--render file.mp4]
+  nookcut resolve PROJECT [--render file.mp4] [--proxy]   --proxy: ProRes copy for smooth editing
   nookcut when REGION
   nookcut make PROJECT ...   everything in one go, offline (same as the MCP tool auto_edit)
   nookcut copy show PROJECT  built-in caption/title/hashtag options for a planned project
@@ -232,6 +232,7 @@ def _main(argv: list[str] | None = None) -> int:
     fm.add_argument("project"); fm.add_argument("framing", help="band | full")
     mu = sub.add_parser("music"); mu.add_argument("project"); mu.add_argument("--style")
     rs = sub.add_parser("resolve"); rs.add_argument("project"); rs.add_argument("--render", default="")
+    rs.add_argument("--proxy", action="store_true", help="also a ProRes proxy of the recording for Resolve")
     w = sub.add_parser("when"); w.add_argument("region"); w.add_argument("--tz")
     st = sub.add_parser("setup", help="print MCP config for an agent platform ('all' lists every one)")
     st.add_argument("platform"); st.add_argument("--url", default="", help="remote HTTP endpoint instead of stdio")
@@ -343,7 +344,8 @@ def _main(argv: list[str] | None = None) -> int:
     elif a.cmd == "render":
         print(_step(pl.make_render, "render", a.project, a.quiet))
     elif a.cmd == "resolve":
-        _print(pl.make_resolve(a.project, a.render))
+        _print(_step(pl.make_resolve, "resolve", a.project, a.quiet, a.render, a.proxy) if a.proxy
+               else pl.make_resolve(a.project, a.render))
     elif a.cmd == "when":
         _print(posting_windows(a.region, a.tz))
     elif a.cmd == "script":
