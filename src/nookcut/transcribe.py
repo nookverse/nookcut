@@ -284,3 +284,82 @@ def snap(a: float, b: float, words: list[list], tol: float, end: float) -> tuple
         if inside(b):
             b = w[1] if b > w[1] else w[0]
     return round(max(0.0, a), 3), round(min(end, b), 3)
+
+
+# ---------- the user's own words: names speech-to-text gets wrong ----------
+
+TERM_SURE = 0.72      # a misheard run of 2-3 words this close to a term is replaced
+TERM_LETTERS = 0.8    # a single word must also be spelled this close (else it may be a real word)
+TERM_MAYBE = 0.66     # closer than this, but not sure: reported for the agent to check
+
+
+def _letters(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+def _skeleton(s: str) -> str:
+    """Consonants only, without a leading h: 'organonit' and 'argonaut' both read 'rgnnt'/'rgnt'."""
+    return re.sub(r"[aeiouy]", "", re.sub(r"^h", "", s))
+
+
+def _likeness(said: str, term: str) -> tuple[float, float]:
+    from difflib import SequenceMatcher
+    a, b = _letters(said), _letters(term)
+    if not a or not b or not 0.6 <= len(a) / len(b) <= 1.6:
+        return 0.0, 0.0
+    letters = SequenceMatcher(None, a, b).ratio()
+    return (letters + SequenceMatcher(None, _skeleton(a), _skeleton(b)).ratio()) / 2, letters
+
+
+def apply_terms(words: list[list], terms: list[str]) -> tuple[list[list], list[dict]]:
+    """Put the user's names (game terms, people, places) where speech-to-text misheard them:
+    'an organ on it' -> 'an Argonaut'. Returns (words, maybes): sure matches are replaced (keeping
+    the times and the punctuation after them); likely ones are only listed, since a single real
+    word can sound alike ('argument')."""
+    terms = [t.strip() for t in terms or [] if t and t.strip()]
+    if not terms or not words:
+        return words, []
+    out, maybes, k = [], [], 0
+    while k < len(words):
+        sure_best, maybe_best = None, None
+        for n in (3, 2, 1):
+            run_ = words[k:k + n]
+            if len(run_) < n:
+                continue
+            said = " ".join(w[2] for w in run_)
+            for term in terms:
+                if n > 1 and any(_letters(w[2]) == _letters(term) for w in run_):
+                    continue   # a word already right is never merged with its neighbours
+                first = _letters(run_[0][2])
+                if n > 1 and len(first) <= 2 and not _letters(term).startswith(first):
+                    continue   # "an organ on it": the name starts after the little word
+                if said.strip(",.!?;:").lower() == term.lower():
+                    score, letters = 1.0, 1.0
+                else:
+                    score, letters = _likeness(said, term)
+                if n > 1:   # the first word must help: else the name starts later ("two argonauts")
+                    rest, _ = _likeness(" ".join(w[2] for w in run_[1:]), term)
+                    if rest >= score:
+                        continue
+                rank = score - 0.04 * (n - 1)   # on a tie, fewer words
+                cand = (rank, score, n, term, said)
+                if score >= 1.0 or (score >= TERM_SURE and (n > 1 or letters >= TERM_LETTERS)):
+                    if not sure_best or rank > sure_best[0]:
+                        sure_best = cand
+                elif not maybe_best or rank > maybe_best[0]:
+                    maybe_best = cand
+        if sure_best:
+            _, score, n, term, said = sure_best
+            tail = re.search(r"[,.!?;:…]*$", words[k + n - 1][2]).group(0)
+            plain, root = _letters(said), _letters(term)
+            ending = plain[len(root):] if plain.startswith(root) else ""   # Argonauts keeps its s
+            out.append([words[k][0], words[k + n - 1][1], term + ending + tail])
+            k += n
+            continue
+        score, n, term, said = maybe_best[1:] if maybe_best else (0.0, 1, "", "")
+        if score >= TERM_MAYBE and not (maybes and maybes[-1]["until"] > words[k][0]):
+            maybes.append({"t": words[k][0], "said": said.strip(",.!?;:"), "term": term,
+                           "until": words[k + n - 1][1]})
+        out.append(words[k])
+        k += 1
+    return out, [{k: m[k] for k in ("t", "said", "term")} for m in maybes]

@@ -33,7 +33,7 @@ from . import qc
 from . import voice as vc
 from .publish import write_kit
 from .render import preview, render
-from .story import add_speech, clear_of_cuts, crop_bars, plan
+from .story import add_speech, auto_focus, clear_of_cuts, crop_bars, mark_emphasis, plan
 from .preflight import check, speech_status
 from .errors import Cancelled, EnvironmentNotReady, InputError, as_nookcut
 from .models import whisper_model
@@ -91,16 +91,23 @@ def set_framing(project: str, framing: str) -> dict:
     p = paths(project)
     _need(p["brief"], "create_project (nookcut new)", "brief")
     brief = Brief.load(p["brief"])
+    if value == "split" and brief.orientation != "vertical":
+        raise InputError("Split framing (facecam or minimap on top) is for vertical videos.",
+                         "Use band or full for square and wide videos.")
     brief.framing = value
     brief.save(p["brief"])
     out = {"framing": value}
     if os.path.exists(p["edit"]):
         edit = ed.load(p["edit"])
         edit["framing"] = value
+        if value == "split" and not edit.get("panel"):
+            from .story import panel_of
+            edit["panel"] = panel_of(brief, _analysis(project))
         ed.save(edit, p["edit"])
         out = describe(edit)
-    out["next"] = ("aim each shot with update_edit focus (preview_plan shows what each shot shows), then render again"
-                   if value == "full" else "render again to see it")
+    out["next"] = ("check each shot's aim on preview_plan (shots are aimed at the action automatically; fix with "
+                   "update_edit focus)" + (" and the top panel (magenta)" if value == "split" else "") + ", then render again"
+                   if value in ("full", "split") else "render again to see it")
     return out
 
 
@@ -137,7 +144,10 @@ def _analyze(project: str, t: Task) -> dict:
     speech = speech_status() if brief.subtitles != "off" else {"ready": False, "how": "subtitles are off"}
     if brief.subtitles == "on" and not speech["ready"]:
         raise EnvironmentNotReady("Speech captions are turned on, but speech-to-text isn't set up.", speech["how"])
-    result = an.analyze(brief.source, p["analysis"], key_moments=brief.key_moments, hwaccel=hw, task=t,
+    from .brief import box, looks_like_box
+    ignore = [box(brief.facecam)] if brief.facecam and looks_like_box(brief.facecam) else []
+    result = an.analyze(brief.source, p["analysis"], key_moments=brief.key_moments, hwaccel=hw, task=t, cues=brief.cues,
+                        ignore=ignore,
                         more_stages=(VOICE_STAGE, *(SPEECH_STAGES if speech["ready"] else ())))
     info = result["signals"]["info"]
     tracks = [a["index"] for a in info["audio_tracks"] if a["peak_db"] > -60]
@@ -181,10 +191,40 @@ def _transcribe(project: str, brief: Brief, tracks: list, env, speech: dict, t: 
     tr = transcribe(brief.source, tracks, whisper_model(), p["transcript"], brief.speech_language, t,
                     duration, env=env)
     words = tr["words"]
+    check = []
+    if brief.terms and words:   # the user's names, where speech-to-text misheard them
+        from .transcribe import apply_terms
+        words, check = apply_terms(words, brief.terms)
+        tr["words"] = words
+        _save_json(p["transcript"], tr)
     if not words:
         return {"words": 0, "model": tr["model"], "note": "no speech found"}
-    return {"words": len(words), "model": tr["model"], "language": tr["language"],
-            "preview": " ".join(w[2] for w in words[:30]) + (" ..." if len(words) > 30 else "")}
+    out = {"words": len(words), "model": tr["model"], "language": tr["language"],
+           "preview": " ".join(w[2] for w in words[:30]) + (" ..." if len(words) > 30 else "")}
+    if check:
+        out["check"] = [f"{c['t']:.1f}s: '{c['said']}' may be {c['term']} (fix with update_edit words)"
+                        for c in check[:10]]
+    return out
+
+
+def hook_from_speech(edit: dict, words: list[list], analysis: dict) -> None:
+    """The hook caption becomes a strong line said later in the video (a teaser), when there is one;
+    otherwise the library's hook stays. Talking videos cut on sentences keep theirs (the hook is spoken)."""
+    sig = analysis["signals"]
+    best = cw.quotes(edit, words, sig.get("loudness"), sig.get("rate", 2.0), 1)
+    hook = next((s for s in edit["segments"] if s["kind"] == "hook"), None)
+    if hook and best and best[0]["score"] >= cw.QUOTE_MIN:
+        hook["top"], hook["top_from"] = best[0]["text"], "speech"
+        edit["hook_note"] = (f"The hook caption is a line said at {best[0]['t']:.0f}s: \"{best[0]['said']}\". "
+                             "Speech-to-text can mishear words; check it in preview_plan.")
+
+
+def reaim(project: str, edit: dict) -> None:
+    """Redo the automatic aims (after cuts moved); focus set by hand stays."""
+    analysis = _analysis(project)
+    if analysis:
+        auto_focus(edit, analysis)
+        mark_emphasis(edit, _words(project), analysis)
 
 
 def refill_words(project: str, s: dict) -> None:
@@ -224,6 +264,12 @@ def make_plan(project: str, template: str | None = None) -> dict:
         add_speech(edit, words, brief)
     clear_of_cuts(edit, result["signals"].get("scenes"))
     crop_bars(edit, result)
+    auto_focus(edit, result)   # after every step that moves cuts or crops
+    mark_emphasis(edit, words, result)
+    if brief.label and edit["segments"]:
+        edit["label"] = brief.label
+    if words and edit.get("cut_by") not in ("sentences", "pauses"):
+        hook_from_speech(edit, words, result)
     if brief.voiceover == "captions":   # read the hook and the end card aloud (agents write other lines)
         for s in edit["segments"]:
             if s["kind"] in ("hook", "end") and s.get("top") and not s.get("vo"):
@@ -240,6 +286,18 @@ def make_plan(project: str, template: str | None = None) -> dict:
     return describe(edit)
 
 
+def panel_note(p: dict) -> str:
+    """What the split layout's top panel shows, and how sure NookCut is about it."""
+    if p.get("kind") == "facecam":
+        return ("facecam from " + (f"the file {os.path.basename(p['file'])}" if p.get("file") else f"box {p.get('box')}")
+                + " (yours)")
+    others = f" (other still corners: {', '.join(p['others'])})" if p.get("others") else ""
+    where = {"user": "the box you gave", "guess": f"a guess: the still {p.get('corner')} corner of the screen{others}",
+             "default": "the top-left corner (no still corner was found)"}.get(p.get("by"), "")
+    return (f"the minimap, from {where} {p.get('box')}. Check preview_plan (magenta outline); if it's wrong, "
+            "set update_edit panel {\"box\": [x, y, w, h]}, or give a facecam")
+
+
 def describe(edit: dict) -> dict:
     out = {"template": edit["template"], "length": ed.total(edit), "segments": [
         {"i": i, "kind": s["kind"], "at": st, "dur": round(d, 2), "src": [s["src_in"], s["src_out"]],
@@ -248,7 +306,9 @@ def describe(edit: dict) -> dict:
          **({"broll": s["broll"]} if s.get("broll") else {}),
          **({"vo": s["vo"]} if s.get("vo") else {}),
          **({"focus": s.get("focus") or [0.5, 0.5], **({"focus_end": s["focus_end"]} if s.get("focus_end") else {}),
-             **({"zoom": s["zoom"]} if s.get("zoom", 1) != 1 else {})} if edit.get("framing") == "full" else {})}
+             **({"aimed": "automatically"} if s.get("focus_by") == "auto" else {}),
+             **({"zoom": s["zoom"]} if s.get("zoom", 1) != 1 else {})}
+            if edit.get("framing") in ("full", "split") else {})}
         for i, (st, d, s) in enumerate(ed.timeline(edit))], "speech_captions": bool(edit.get("subtitles")),
         "framing": edit.get("framing", "band")}
     if edit.get("framing") == "full":
@@ -258,8 +318,15 @@ def describe(edit: dict) -> dict:
                                "Check preview_plan: the outline is what the viewer sees."
                                + (f" The recording is enlarged up to {up:g}x" + (", so it will look soft." if up > 2.5 else ".")
                                   if up else ""))
+    if edit.get("framing") == "split":
+        out["panel"] = panel_note(edit.get("panel") or {})
+    if edit.get("hook_note"):
+        out["hook"] = edit["hook_note"]
     if edit.get("broll_notes"):
         out["broll"] = edit["broll_notes"]
+    if edit["template"] == "clip":
+        out["note"] = ("One continuous clip, ending just after its biggest moment; no cards and no generated "
+                       "music. Move src_in/src_out with update_edit to pick another stretch.")
     if edit["template"] == "tighten":
         out["note"] = (f"{edit.get('removed_s', 0):.0f} s of pauses cut out; the whole talk is kept, so max_duration "
                        "doesn't apply. No generated music under jump cuts.")
@@ -543,7 +610,15 @@ def suggest_copy(project: str, count: int = 5) -> dict:
     """Offline captions/titles/description/hashtags for the current edit (no internet)."""
     p = paths(project)
     _need(p["edit"], "plan_edit (nookcut plan)", "edit plan")
-    return cw.suggest(Brief.load(p["brief"]), _analysis(project), ed.load(p["edit"]), count)
+    return cw.suggest(Brief.load(p["brief"]), _analysis(project), ed.load(p["edit"]), count, _words(project))
+
+
+def _words(project: str) -> list[list] | None:
+    path = paths(project)["transcript"]
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)["words"]
 
 
 def make_kit(project: str, video: str, titles: list[str] | None = None, description: str = "",
@@ -701,7 +776,8 @@ def make_all(project: str, brief: Brief, template: str | None = None, out_name: 
     edit = ed.load(paths(project)["edit"])
     deaths = len(found.get("deaths") or [])
     story = {"comeback": f"{deaths} deaths, then the win", "victory": "the win",
-             "highlights": "the top moments", "tighten": "the whole talk without its pauses"}.get(view["template"], view["template"])
+             "highlights": "the top moments", "tighten": "the whole talk without its pauses",
+             "clip": "one continuous clip"}.get(view["template"], view["template"])
     music = {"none": "no music", "file": "your music file"}.get(edit["music"], f"original {edit['music_style']} score")
     out = {"video": os.path.abspath(video), "publish_kit": os.path.abspath(kit),
            "resolve": resolve, "length_s": view["length"], "template": view["template"],
@@ -709,7 +785,8 @@ def make_all(project: str, brief: Brief, template: str | None = None, out_name: 
            "titles": copy["titles"][:3], "warnings": created["warnings"],
            "checks": {"ok": checks["ok"], "issues": checks["issues"], "facts": checks["facts"],
                       "frames": os.path.abspath(checks["frames"])},
-           "speech_captions": "word by word" if edit.get("subtitles") else found["speech"].get("note", "none")}
+           "speech_captions": "word by word" if edit.get("subtitles") else found["speech"].get("note", "none"),
+           **{k: view[k] for k in ("panel", "hook") if view.get(k)}}
     if copy.get("note"):
         out["note"] = copy["note"]
     return out

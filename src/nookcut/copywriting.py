@@ -334,12 +334,62 @@ def file_name(brief, deaths: int) -> str:
     return _slug(" ".join(parts))
 
 
+# ---------- hooks from what is said ----------
+
+QUOTE_WORDS = (2, 8)     # a hook quote is a short line: this many words
+SHOUT_DB = 6.0           # a line this much louder than the speaker's usual line counts as shouted
+_SIGN_OFF = re.compile(r"\b(comment|comments|subscribe|follow|like and|link in|let me know|see you|thanks for)\b",
+                       re.I)
+
+
+def quotes(edit: dict, words: list[list] | None, loudness: list | None = None, rate: float = 2.0,
+           count: int = 5) -> list[dict]:
+    """Lines said in the video that would make a hook caption (a teaser of what's coming): short
+    sentences spoken in a kept segment other than the hook, scored on what any language shares:
+    an exclamation or question, being shouted (louder than usual), and length. Best first."""
+    if not words:
+        return []
+    from .transcribe import sentences
+    width = 16 if edit.get("orientation") == "vertical" else 26
+    kept = [(i, s) for i, s in enumerate(edit.get("segments", [])) if s["kind"] not in ("hook", "end", "card")]
+    sents = sentences(words, gap=0.5)
+
+    def peak(sent):
+        part = loudness[int(sent[0][0] * rate):int(sent[-1][1] * rate) + 1] if loudness else []
+        return max(part) if part else None
+
+    # "shouted" means louder than this speaker's usual line, not louder than the game
+    peaks = sorted(p for p in map(peak, sents) if p is not None)
+    usual = peaks[len(peaks) // 2] if peaks else None
+    out = []
+    for sent in sents:
+        said = " ".join(w[2] for w in sent).strip()
+        n = len(said.split())
+        mid = (sent[0][0] + sent[-1][1]) / 2
+        where = next((i for i, s in kept if s["src_in"] <= mid < s["src_out"]), None)
+        if where is None or not QUOTE_WORDS[0] <= n <= QUOTE_WORDS[1] or _SIGN_OFF.search(said):
+            continue
+        caption = fit(said.upper().rstrip(".,;:"), width)
+        if not caption or caption.count("|") > 2:
+            continue
+        score = (1.5 if said.rstrip()[-1:] in "!?" else 0) - 0.15 * abs(n - 5)
+        p = peak(sent)
+        if p is not None and usual is not None:
+            score += min(1.5, max(0.0, (p - usual) / SHOUT_DB))
+        out.append({"text": caption, "said": said, "t": round(sent[0][0], 2), "i": where, "score": round(score, 2)})
+    out.sort(key=lambda q: -q["score"])
+    return out[:count]
+
+
+QUOTE_MIN = 1.0   # only a line this strong (exclaimed, or SHOUT_DB louder) replaces the library's hook
+
+
 def _sentence(caption: str) -> str:
     s = caption.replace("|", " ").strip().lower()
     return re.sub(r"(^|[.!?]\s+)(\w)", lambda m: m.group(1) + m.group(2).upper(), s)
 
 
-def suggest(brief, analysis: dict | None, edit: dict, count: int = 5) -> dict:
+def suggest(brief, analysis: dict | None, edit: dict, count: int = 5, words: list[list] | None = None) -> dict:
     """Offline alternatives for every caption, plus titles, a description, hashtags and a file name."""
     data, code, note = load(brief.language, getattr(brief, "copy_pack", ""))
     template = edit.get("template", "highlights")
@@ -350,6 +400,8 @@ def suggest(brief, analysis: dict | None, edit: dict, count: int = 5) -> dict:
     seed = f"{brief.source}|{brief.title}"
     count = max(1, min(int(count or 5), 10))
 
+    sig = (analysis or {}).get("signals") or {}
+    said = quotes(edit, words, sig.get("loudness"), sig.get("rate", 2.0), count)
     caps = []
     for i, seg in enumerate(edit.get("segments", [])):
         top_keys, bottom_keys = caption_keys(seg["kind"], template, vt, deaths)
@@ -358,7 +410,10 @@ def suggest(brief, analysis: dict | None, edit: dict, count: int = 5) -> dict:
         row = {}
         for field, keys in (("top", top_keys), ("bottom", bottom_keys)):
             w = width + BOTTOM_EXTRA if field == "bottom" else width
-            alts = [o for o in options(data, keys, s, w) if o != seg.get(field, "")][:count - 1]
+            alts = options(data, keys, s, w)
+            if seg["kind"] == "hook" and field == "top":
+                alts = [q["text"] for q in said] + alts   # lines said later in the video come first
+            alts = [o for o in dict.fromkeys(alts) if o != seg.get(field, "")][:count - 1]
             if alts:
                 row[f"{field}_options"] = alts
         if row:
@@ -382,7 +437,10 @@ def suggest(brief, analysis: dict | None, edit: dict, count: int = 5) -> dict:
         hook_line = ""  # "17 deaths. One win." then "17 deaths. Attempt #18." repeats itself
     first = next(iter(tags.values()), [])
     description = "\n\n".join(x for x in (hook_line, summary, cta, " ".join(first[:3])) if x)
-    out = {"source": SOURCE, "language": code, "captions": caps, "titles": titles, "description": description,
+    out = {"source": SOURCE, "language": code, "captions": caps,
+           **({"hook_quotes": [{k: q[k] for k in ("text", "said", "t")} for q in said],
+               "hook_quotes_note": "said in the video (speech-to-text can mishear names: check the spelling)"}
+              if said else {}), "titles": titles, "description": description,
            "hashtags": tags, "hashtags_note": HASHTAGS_NOTE, "file_name": file_name(brief, deaths)}
     if note:
         out["note"] = note

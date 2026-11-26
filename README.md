@@ -25,8 +25,16 @@ included), and writes a publish kit with titles, hashtags and region-aware posti
 - **HDR handled.** PS5/Xbox HDR captures and iPhone HDR video are tone-mapped to normal colour (on the
   Apple GPU when available), or kept as 10-bit HDR10/HLG with `--hdr keep`.
 - **Any recording size.** 720p to 4K, 4:3, ultrawide and phone-vertical recordings all fit. With
-  `framing: full` the picture fills the vertical frame edge to edge (no blurred bars), and each shot
-  can be aimed and panned.
+  `framing: full` the picture fills the vertical frame edge to edge (no blurred bars); with
+  `framing: split` the facecam (or, without one, the game's minimap) sits on top and the action below.
+  Shots are aimed at the action automatically, and can be re-aimed and panned.
+- **Stream clips.** `--template clip --framing split --facecam … --caption-style streamer --label
+  "ARGONAUT|OPERATOR" --term Argonaut` gives the stream-clip look: one continuous take ending on the
+  payoff, a facecam card over blur with the gameplay big below, one or two words of captions at a
+  time, shouted or sworn words in red (censored), and a short label in the first second.
+- **Moments you name.** Point NookCut at a sign the game shows (a kill icon, a victory banner) with
+  `--cue "kill@10:42@x,y,w,h"`; it finds every time it appears and cuts the video around them. A line
+  shouted in the commentary ("no way he didn't see me!") becomes the hook caption.
 - **High frame rate.** 120 fps recordings give slow motion from real frames instead of invented ones,
   and output matches the source's rate family (59.94, 60 or 50 fps).
 - **Script to video.** Write a script; NookCut narrates it offline over your own B-roll (or a moving
@@ -229,7 +237,16 @@ The same options work as CLI flags (`nookcut new` / `make`) and as arguments of 
 | `video_type` (`--type`) | gameplay if a game is set, else generic | `gameplay`, `talking`, `sports`, `tutorial`, `generic` |
 | `game` (`--game`) | none | Game name, for gameplay |
 | `orientation` (`--orientation`) | `vertical` | `vertical` (9:16), `square` (1:1), `wide` (16:9) |
-| `framing` (`--framing`) | `band` | `band`: a sharp band over a blurred copy. `full`: the picture fills the frame, each shot aimed with `focus` (and panned with `focus_end`) in `edit.json`; works for any recording size or shape. Change it any time with `nookcut framing PROJECT full` (or `band`), then render again |
+| `framing` (`--framing`) | `band` | `band`: a sharp band over a blurred copy. `full`: the picture fills the frame; works for any recording size or shape. `split` (vertical): the facecam, or the game's minimap, on top and the action below. Shots are aimed at the action automatically; re-aim with `focus` (and pan with `focus_end`) in `edit.json`. Change it any time with `nookcut framing PROJECT full` (or `band`, `split`), then render again |
+| `facecam` (`--facecam`) | none | Split: the webcam's box in the recording, `x,y,w,h` as fractions of the picture, or a separate webcam recording (`--facecam-offset` seconds after the recording). Without it the minimap is shown |
+| `minimap` (`--minimap`) | found automatically | Split without a facecam: the minimap's box `x,y,w,h` (default: the screen corner that stays still) |
+| `panel_style` (`--panel-style`) | `card` | Split: `card` (a facecam card over blur, gameplay big below) or `full` (a full-width panel) |
+| `caption_box` (`--no-caption-box`) | on | Captions sit centred on the gameplay's borders (half over the gameplay, half over the blur, facecam or minimap) on a translucent dark slab; off gives the plain outlined look |
+| `caption_style` (`--caption-style`) | `highlight` | Speech captions: `highlight` (a phrase, the spoken word in yellow) or `streamer` (one or two words at a time, hard cuts; shouted or sworn words red and lower) |
+| `censor` (`--no-censor`) | on | Swear words in captions shown as `F*CK` |
+| `terms` (`--term`) | none | Names speech-to-text gets wrong (game terms, players), fixed in the captions; likely mishearings are listed to check |
+| `label` (`--label`) | none | A short context label for the first second, e.g. `ARGONAUT\|OPERATOR` |
+| `cues` (`--cue`) | none | Signs on screen that mark moments: `label@time@x,y,w,h`, e.g. `kill@10:42@0.8,0.05,0.15,0.08` (repeatable). Every appearance is found; a label with win/victory/final marks the win |
 | `max_duration` (`--max`) | `60` | Length limit: `45`, `45s`, `1:30`. Vertical videos are capped at 140 s |
 | `platforms` (`--platforms`) | Shorts, TikTok, Reels | `youtube_shorts`, `tiktok`, `instagram_reels`, `facebook_reels`, `youtube`, `x` |
 | `region` (`--region`) | global | Audience region for posting times, e.g. `India`, `United States` |

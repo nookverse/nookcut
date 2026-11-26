@@ -4,8 +4,9 @@
   nookcut new PROJECT --source raw.mov --title "..." [--game ...] [--orientation vertical] [--max 60]
                      [--region India] [--language en] [--music ai|none|file] [--music-file x.mp3]
   nookcut analyze PROJECT
-  nookcut plan PROJECT [--template comeback|victory|highlights|tighten]
-  nookcut framing PROJECT band|full   blurred bands (default) or the picture filling the frame
+  nookcut plan PROJECT [--template comeback|victory|highlights|tighten|clip]
+  nookcut framing PROJECT band|full|split   blurred bands (default), the picture filling the frame,
+                                            or facecam/minimap on top of the action (vertical)
   nookcut preview PROJECT
   nookcut music PROJECT [--style taiko|pulse|cinematic]
   nookcut render PROJECT
@@ -72,7 +73,21 @@ def _brief_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--broll-dir", default="", help="folder of your own clips/pictures to show as B-roll")
     p.add_argument("--hdr", default="sdr", help="HDR sources: sdr (convert, plays everywhere) | keep (HDR10/HLG HEVC)")
     p.add_argument("--framing", default="band", help="band (sharp band over a blurred copy) | full (the picture "
-                   "fills the frame; aim shots with focus in edit.json)")
+                   "fills the frame) | split (vertical: facecam, or the minimap, on top; the action below)")
+    p.add_argument("--facecam", default="", help='split: the webcam box "x,y,w,h" (fractions) or a webcam file')
+    p.add_argument("--facecam-offset", type=float, default=0.0, help="seconds the webcam file started after the recording")
+    p.add_argument("--minimap", default="", help='split: the minimap box "x,y,w,h" (default: found automatically)')
+    p.add_argument("--panel-style", default="card", help="split: card (facecam card over blur) | full (full width)")
+    p.add_argument("--caption-style", default="highlight",
+                   help="speech captions: highlight (phrase, spoken word yellow) | streamer (1-2 word cards, loud words red)")
+    p.add_argument("--no-censor", dest="censor", action="store_false", help="show swear words as said")
+    p.add_argument("--no-caption-box", dest="caption_box", action="store_false",
+                   help="captions with a plain outline instead of a translucent slab behind them")
+    p.add_argument("--term", action="append", default=[], dest="terms", metavar="NAME",
+                   help="a name speech-to-text gets wrong (game term, player), e.g. --term Argonaut (repeatable)")
+    p.add_argument("--label", default="", help='a context label for the first second, e.g. "ARGONAUT|OPERATOR"')
+    p.add_argument("--cue", action="append", default=[], dest="cues", metavar="LABEL@TIME@X,Y,W,H",
+                   help='a sign on screen that marks moments, e.g. --cue "kill@10:42@0.8,0.05,0.15,0.08" (repeatable)')
 
 
 def _brief(a) -> Brief:
@@ -83,7 +98,9 @@ def _brief(a) -> Brief:
                  source_audio=a.source_audio, online=a.online, subtitles=a.subtitles, key_moments=a.key_moments,
                  speech_language=a.speech_language, hdr=a.hdr, fps=a.fps, broll_dir=a.broll_dir,
                  voiceover=a.voiceover, voice=a.voice, voice_speed=a.voice_speed, copy_pack=a.copy_pack,
-                 framing=a.framing)
+                 framing=a.framing, facecam=a.facecam, facecam_offset=a.facecam_offset, minimap=a.minimap,
+                 cues=a.cues, panel_style=a.panel_style, caption_style=a.caption_style, censor=a.censor,
+                 terms=a.terms, label=a.label, caption_box=a.caption_box)
 
 
 def _fail(e: BaseException, verbose: bool) -> int:

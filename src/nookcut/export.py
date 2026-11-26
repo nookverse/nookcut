@@ -183,6 +183,9 @@ def resolve_kit(edit: dict, kit_dir: str, render_path: str = "", music_path: str
                 if s.get("broll"):
                     b = s["broll"]
                     f.write(f"{start + float(b.get('start') or 0):.3f}\tPink\tB-roll {b['file']} ({b.get('layout', 'cover')})\n")
+    if edit.get("framing") == "split":
+        out["note"] = (out.get("note", "") + " The split layout's top panel (facecam or minimap) isn't rebuilt in "
+                       "Resolve: the EDITABLE timeline shows the action only; the FINAL one has the whole video.").strip()
     if edit.get("subtitles"):
         from .subtitles import srt
         out["captions_srt"] = os.path.join(kit_dir, "captions.srt")

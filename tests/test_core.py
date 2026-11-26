@@ -1195,5 +1195,368 @@ class Service(unittest.TestCase):
         self.assertIn("--transport", service._unit())
 
 
+class Aim(unittest.TestCase):
+    """Shots aimed at the action: where the picture changes, from the 64x36 scan."""
+
+    def test_scan_finds_where_things_move(self):
+        from nookcut.analyze import _Frames, W, H
+        f = _Frames()
+        frames = []
+        for k in range(6):
+            b = bytearray(W * H * 3)
+            for y in range(10, 20):
+                for x in range(44 + k, 50 + k):
+                    b[(y * W + x) * 3 + 1] = 255
+            frames.append(bytes(b))
+        f.feed(b"".join(frames))
+        self.assertIsNone(f.where[0])                       # nothing to compare the first frame with
+        x, y, spread = f.where[3]
+        self.assertAlmostEqual(x, 0.75, delta=0.05)
+        self.assertAlmostEqual(y, 0.42, delta=0.05)
+        self.assertLess(spread, 0.1)
+        self.assertEqual(len(f.grid()["motion"]), 16 * 9)
+
+    def test_aim_follows_one_spot_and_ignores_camera_turns(self):
+        from nookcut.story import aim
+        spot = [[0.8, 0.5, 0.05]] * 10
+        self.assertAlmostEqual(aim(spot, 2.0, 0, 5)[0], 0.5 + 0.3 * 0.85, places=3)
+        self.assertIsNone(aim([[0.8, 0.5, 0.41]] * 10, 2.0, 0, 5))   # motion all over: keep the middle
+        self.assertIsNone(aim([None] * 10, 2.0, 0, 5))                 # nothing moves
+        self.assertIsNone(aim(None, 2.0, 0, 5))                        # an analysis from before aiming
+        # with black bars cut, the aim is a fraction of the picture inside them
+        x, _ = aim(spot, 2.0, 0, 5, crop=[240, 0, 1440, 1080], size=(1920, 1080))
+        self.assertAlmostEqual(x, 0.5 + ((0.8 * 1920 - 240) / 1440 - 0.5) * 0.85, places=3)
+
+    def test_aim_skips_the_facecam_and_hud_corners(self):
+        from nookcut.story import aim
+        corner = [[0.9, 0.85, 0.05]] * 10                            # a facecam or kill feed moving alone
+        self.assertIsNone(aim(corner, 2.0, 0, 5))
+        panel = [[0.5, 0.1, 0.05]] * 10                              # inside the split layout's panel box
+        self.assertIsNone(aim(panel, 2.0, 0, 5, avoid=[[0.4, 0.0, 0.2, 0.2]]))
+        self.assertIsNotNone(aim(panel, 2.0, 0, 5))
+
+    def test_scan_leaves_out_ignored_boxes(self):
+        from nookcut.analyze import _Frames, W, H
+        f = _Frames(ignore=[[0.75, 0.0, 0.25, 0.3]])                 # the facecam's box
+        frames = []
+        for k in range(3):
+            b = bytearray(W * H * 3)
+            for y in range(2, 8):
+                for x in range(52 + k, 60 + k):
+                    b[(y * W + x) * 3 + 1] = 255
+            frames.append(bytes(b))
+        f.feed(b"".join(frames))
+        self.assertEqual(f.where[1:], [None, None])                  # only the facecam moved
+        self.assertGreater(max(f.grid()["motion"]), 0)               # the grid still sees it (not a map)
+
+    def test_auto_focus_keeps_a_hand_set_focus(self):
+        from nookcut.story import auto_focus
+        from nookcut.edit import seg
+        a, b, c = seg(0, 4, "highlight"), seg(5, 9, "highlight"), seg(10, 14, "highlight")
+        b["focus"] = [0.2, 0.5]                                       # set by the agent
+        c["focus"], c["focus_by"] = [0.9, 0.5], "auto"                # set automatically, cut since moved
+        where = [[0.8, 0.5, 0.05]] * 20 + [[0.5, 0.5, 0.4]] * 10
+        edit = {"segments": [a, b, c]}
+        auto_focus(edit, {"signals": {"where": where, "rate": 2.0, "info": {"width": 1920, "height": 1080}}})
+        self.assertEqual(a["focus_by"], "auto")
+        self.assertEqual(b["focus"], [0.2, 0.5])
+        self.assertNotIn("focus", c)                                  # nothing to aim at any more: the middle
+
+
+class Split(unittest.TestCase):
+    """framing "split": facecam (or the minimap) on top, the action below."""
+
+    def test_minimap_is_the_still_corner(self):
+        from nookcut.analyze import hud_corner
+        M, B = [3.0] * 144, [100] * 144
+        for y in range(6, 9):
+            for x in range(13, 16):
+                M[y * 16 + x] = 0.2
+        found = hud_corner({"cols": 16, "rows": 9, "motion": M, "bright": B})
+        self.assertEqual(found["corner"], "bottom-right")
+        self.assertEqual(found["box"], [0.7812, 0.6111, 0.2188, 0.3889])   # half a block of margin inward
+        self.assertIsNone(hud_corner({"cols": 16, "rows": 9, "motion": [3.0] * 144, "bright": B}))  # all moves
+        dark = [0] * 144                                              # still and black: bars, not a map
+        self.assertIsNone(hud_corner({"cols": 16, "rows": 9, "motion": M, "bright": dark}))
+
+    def test_several_still_corners_go_to_the_usual_map_corner(self):
+        from nookcut.analyze import hud_corner
+        M, B = [3.0] * 144, [100] * 144
+        for y in (0, 1, 7, 8):
+            for x in (0, 1, 14, 15):
+                M[y * 16 + x] = 0.2                                  # four equal still corners
+        found = hud_corner({"cols": 16, "rows": 9, "motion": M, "bright": B})
+        self.assertEqual(found["corner"], "top-left")
+        self.assertEqual(len(found["others"]), 3)
+
+    def test_panel_prefers_the_facecam(self):
+        import tempfile
+        from nookcut.story import panel_of
+        b = Brief(title="t", source="/x.mov", framing="split", facecam="0.7,0.6,0.3,0.4")
+        self.assertEqual(panel_of(b, None), {"kind": "facecam", "box": [0.7, 0.6, 0.3, 0.4], "by": "user", "style": "card"})
+        with tempfile.NamedTemporaryFile(suffix=".mp4") as cam:
+            b = Brief(title="t", source="/x.mov", framing="split", facecam=cam.name, facecam_offset=2.5)
+            p = panel_of(b, None)
+            self.assertEqual((p["kind"], p["file"], p["offset"]), ("facecam", cam.name, 2.5))
+        b = Brief(title="t", source="/x.mov", framing="split")
+        self.assertEqual(panel_of(b, None)["by"], "default")          # no facecam, no analysis: top-left map
+        b = Brief(title="t", source="/x.mov", framing="split", minimap="0.8,0,0.2,0.35")
+        self.assertEqual(panel_of(b, None), {"kind": "minimap", "box": [0.8, 0.0, 0.2, 0.35], "by": "user", "style": "card"})
+
+    def test_brief_checks_split(self):
+        self.assertEqual(Brief(title="t", source="/x", framing="facecam").framing, "split")
+        with self.assertRaises(ValueError):
+            Brief(title="t", source="/x", framing="split", orientation="wide").validate()
+        with self.assertRaises(ValueError):
+            Brief(title="t", source="/x", framing="split", minimap="top left").validate()
+
+    def test_render_stacks_the_panel_over_the_action(self):
+        import tempfile
+        from unittest import mock
+        from nookcut import render as r
+        from nookcut.edit import seg
+        edit = {"source": "in.mp4", "orientation": "vertical", "width": 1080, "height": 1920, "fps": "60",
+                "source_audio": "duck", "source_hdr": None, "framing": "split",
+                "panel": {"kind": "minimap", "box": [0.0, 0.0, 0.2, 0.33]}}
+        s = seg(10, 14, "highlight")
+        s["focus"] = [0.7, 0.5]
+        cmds = []
+        with tempfile.TemporaryDirectory() as work, mock.patch.object(r, "run", lambda c, *a, **k: cmds.append(c)):
+            r._segment(edit, 0, s, work, "/x/Impact.ttf", None, 1920, 1080, look=r.color_plan(edit))
+            graph = cmds[0][cmds[0].index("-filter_complex") + 1]
+            # card (default): the facecam card and the action over a blurred copy
+            for piece in ("crop=w='trunc(iw*0.2/2)*2'", "force_original_aspect_ratio=decrease", "split=3[a][b][c]",
+                          "scale=1080:1112", "[bg][fg]overlay=0:510", "[t0][pn]overlay=195:60[base]"):
+                self.assertIn(piece, graph)
+            edit["panel"]["style"] = "full"
+            r._segment(edit, 0, s, work, "/x/Impact.ttf", None, 1920, 1080, look=r.color_plan(edit))
+            graph = cmds[-1][cmds[-1].index("-filter_complex") + 1]
+            for piece in ("[pn][fg]vstack[base]", f"scale=1080:{1920 - r.PANEL_H}"):
+                self.assertIn(piece, graph)
+            edit["panel"] = {"kind": "facecam", "file": "/cam.mp4", "offset": 2.0}
+            with mock.patch.object(r.br, "_probe_one", return_value={"hdr": False, "matrix": None}):
+                r._segment(edit, 0, s, work, "/x/Impact.ttf", None, 1920, 1080, look=r.color_plan(edit))
+            cmd = cmds[-1]
+            self.assertEqual(cmd[cmd.index("/cam.mp4") - 5:cmd.index("/cam.mp4")], ["-ss", "8.000", "-t", "4.000", "-i"])
+            self.assertIn("[1:v]", cmd[cmd.index("-filter_complex") + 1])
+
+    def test_edit_validates_the_panel(self):
+        from nookcut.edit import validate
+        edit = {"orientation": "vertical", "framing": "split", "segments": [], "panel": {"kind": "map", "box": [0, 0, 2, 1]}}
+        self.assertEqual(len(validate(edit)), 2)
+
+
+class Cues(unittest.TestCase):
+    """The user's on-screen signs (a kill icon): every time each one shows."""
+
+    def test_brief_reads_cues(self):
+        b = Brief(title="t", source="/x", cues=["kill@1:02@0.8,0.05,0.15,0.08", {"label": "win", "t": 90, "box": "0,0,1,1"}])
+        self.assertEqual(b.cues[0], {"label": "kill", "t": 62.0, "box": [0.8, 0.05, 0.15, 0.08]})
+        with self.assertRaises(ValueError):
+            Brief(title="t", source="/x", cues=["kill@10"])
+
+    def test_matches_are_runs_above_the_bar(self):
+        from nookcut.analyze import cue_times, parse_ssim
+        self.assertEqual(parse_ssim("n:1 Y:0.41 All:0.410 (2.3)\nn:2 Y:0.95 All:0.950 (13.0)\n"), [0.41, 0.95])
+        v = [0.3] * 100
+        for start in (10, 50, 52, 80):          # 50 and 52 are one appearance (0.4 s apart)
+            v[start] = v[start + 1] = 0.97
+        out = cue_times(v, at=10 / 5)
+        self.assertEqual(out["at"], [2.0, 10.0, 16.0])
+        self.assertIn("note", cue_times([0.9] * 50, at=2))           # the box always looks alike
+
+    def test_cues_raise_the_moments_around_them(self):
+        from nookcut.analyze import moment_scores
+        sig = {"motion": [1.0] * 40, "loudness": None, "brightness": [100] * 40, "rate": 2.0, "scenes": [],
+               "cues": [{"label": "kill", "at": [10.0]}]}
+        scores = moment_scores(sig)
+        self.assertGreater(scores[20], scores[5] + 2)
+
+
+class HookQuotes(unittest.TestCase):
+    """Hooks from what is said: a short exclaimed or shouted line from later in the video."""
+
+    def _edit(self):
+        from nookcut.edit import seg
+        return {"orientation": "vertical", "segments": [seg(0, 2, "hook"), seg(5, 15, "highlight"), seg(20, 30, "highlight")]}
+
+    def test_shouted_line_wins_and_sign_offs_never_do(self):
+        from nookcut.copywriting import quotes, QUOTE_MIN
+        words = [[6.0, 6.3, "here"], [6.3, 6.6, "we"], [6.6, 7.0, "go"], [7.0, 7.4, "again."],
+                 [21.0, 21.3, "no"], [21.3, 21.6, "way"], [21.6, 21.9, "he"], [21.9, 22.2, "missed."],
+                 [25.0, 25.3, "subscribe"], [25.3, 25.6, "for"], [25.6, 26.0, "more."]]
+        loud = [-30.0] * 60
+        for k in range(42, 45):
+            loud[k] = -18.0                                   # "no way he missed" is 12 dB louder
+        out = quotes(self._edit(), words, loud, 2.0)
+        self.assertEqual(out[0]["text"], "NO WAY HE MISSED")
+        self.assertGreaterEqual(out[0]["score"], QUOTE_MIN)
+        self.assertLess(out[1]["score"], QUOTE_MIN)            # said normally: offered, never applied
+        self.assertNotIn("SUBSCRIBE FOR MORE", [q["text"] for q in out])
+
+    def test_lines_in_the_hook_or_too_long_are_skipped(self):
+        from nookcut.copywriting import quotes
+        words = [[0.5, 0.8, "wow!"], [0.8, 1.0, "nice!"]] + \
+                [[6 + k * 0.3, 6.3 + k * 0.3, w] for k, w in enumerate("this is a very long sentence that goes on and on".split())]
+        self.assertEqual(quotes(self._edit(), words), [])
+
+
+class StreamStyle(unittest.TestCase):
+    """The stream-clip look: word cards, red emphasis, censoring, a context label, the facecam card,
+    the one-take clip, and the user's names fixed in the transcript."""
+
+    def test_censor_hides_swears_only(self):
+        from nookcut.subtitles import censor
+        self.assertEqual([censor(w) for w in ("FUCKING", "Shit!", "motherfucker", "bullshit")],
+                         ["F*CKING", "Sh*t!", "motherf*cker", "bullsh*t"])
+        self.assertEqual([censor(w) for w in ("Dickens", "Shitake", "fun", "ARGONAUT")],
+                         ["Dickens", "Shitake", "fun", "ARGONAUT"])
+
+    def test_cards_are_short_and_loud_words_stand_alone(self):
+        from nookcut.subtitles import cards
+        words = [[0, .3, "Well,"], [.4, .6, "I'm"], [.6, .8, "not"], [.8, 1.0, "gonna"], [1.0, 1.1, "be"],
+                 [5, 5.3, "GG"], [5.3, 5.8, "fucking"], [5.8, 6, "GG"], [6, 6.4, "bro."]]
+        out = cards(words, 7, emphasis={5})
+        self.assertEqual([[w[2] for w in c[2]] for c in out],
+                         [["Well,"], ["I'm", "not"], ["gonna", "be"], ["GG"], ["fucking"], ["GG", "bro."]])
+        self.assertEqual([c[3] for c in out], [False, False, False, True, True, False])
+        self.assertEqual(out[1][1], 0.8)                      # up until the next card: hard cuts, no gaps
+
+    def test_streamer_ass_puts_emphasis_lower_and_draws_the_label(self):
+        from nookcut.subtitles import ass
+        words = [[0.2, 0.5, "that"], [0.5, 0.9, "sucks"], [2.0, 2.4, "fucking"]]
+        out = ass(words, 3, 1080, 1920, 510, 110, "/x/Impact.ttf", 16, style="streamer", emphasis=[2.0],
+                  emphasis_y=1344, hide_swears=True,
+                  label={"text": "ARGONAUT|OPERATOR", "x": 356, "y": 754, "size": 93, "end": 1.25})
+        self.assertIn("\\pos(540,510)}THAT SUCKS", out)
+        self.assertIn("Loud,,0,0,0,,{\\an5\\pos(540,1344)}F*CKING", out)
+        self.assertIn("ARGONAUT\\NOPERATOR", out)
+        self.assertIn("\\move(356,754,356,1074,1070,1250)", out)   # swipes down and away at the end
+
+    def test_card_geometry(self):
+        from nookcut.render import split_geometry, _layout
+        e = {"orientation": "vertical", "width": 1080, "height": 1920, "framing": "split", "panel": {}}
+        g = split_geometry(e)
+        self.assertEqual((g["panel"], g["act_y"], g["act_h"]), ((195, 60, 690, 444), 510, 1112))
+        L = _layout(e)
+        self.assertEqual((L["speech_mid"], L["hook_mid"], L["fg_h"]), (510, 1622, 1112))   # on the two borders
+        e["panel"]["style"] = "full"
+        self.assertEqual(split_geometry(e)["act_y"], 760)
+
+    def test_terms_fix_misheard_names(self):
+        from nookcut.transcribe import apply_terms
+        def fixed(text):
+            w = [[k, k + .5, x] for k, x in enumerate(text.split())]
+            out, maybe = apply_terms(w, ["Argonaut", "Al Mazrah"])
+            return " ".join(x[2] for x in out), [m["said"] for m in maybe]
+        self.assertEqual(fixed("fighting an organ on it."), ("fighting an Argonaut.", []))
+        self.assertEqual(fixed("fighting an Argonaut."), ("fighting an Argonaut.", []))
+        self.assertEqual(fixed("two argonauts!"), ("two Argonauts!", []))
+        self.assertEqual(fixed("Al Mazra is big"), ("Al Mazrah is big", []))
+        self.assertEqual(fixed("killed in Harkinut."), ("killed in Harkinut.", ["Harkinut"]))   # only asked
+        self.assertEqual(fixed("what an argument")[0], "what an argument")                    # a real word stays
+
+    def test_clip_is_one_take_ending_after_the_peak(self):
+        b = Brief(title="t", source="/x.mov", game="g", max_duration=20)
+        a = fake_analysis()
+        a["scores"] = [0.0] * len(a["scores"])
+        a["scores"][int(300 * 2)] = 9.0                         # the big moment at 300 s
+        e = plan(b, a, "clip")
+        self.assertEqual(len(e["segments"]), 1)
+        s = e["segments"][0]
+        self.assertAlmostEqual(s["src_out"], 302.0, places=1)    # ends 2 s after it
+        self.assertAlmostEqual(s["src_out"] - s["src_in"], 20.0, places=1)
+        self.assertEqual((e["music"], s["top"], s["speed"]), ("none", "", 1.0))
+
+    def test_shouted_words_are_marked(self):
+        from nookcut.story import mark_emphasis
+        from nookcut.edit import seg
+        s = seg(0, 10, "highlight")
+        s["words"] = [[1.0, 1.4, "that"], [1.5, 1.9, "sucks"], [6.0, 6.4, "no"], [6.5, 6.9, "way"], [8, 8.4, "wow!"]]
+        loud = [-30.0] * 20
+        loud[12] = loud[13] = -18.0                              # "no way" 12 dB louder
+        mark_emphasis({"segments": [s]}, s["words"], {"signals": {"loudness": loud, "rate": 2.0}})
+        self.assertEqual(s["emphasis"], [6.0, 6.5, 8])
+
+
+class MinimapOnce(unittest.TestCase):
+    """Split with the minimap on top: the action below never shows it a second time."""
+
+    def _edit(self, box, kind="minimap"):
+        return {"orientation": "vertical", "width": 1080, "height": 1920, "framing": "split",
+                "source_width": 1920, "source_height": 1080, "panel": {"kind": kind, "box": box}}
+
+    def test_window_moves_off_the_minimap(self):
+        from nookcut.render import minimap_clear
+        from nookcut.edit import seg
+        s = seg(0, 4, "highlight")
+        s["focus"] = [0.2, 0.5]                                       # aimed at the left, where the map is
+        moved, patch = minimap_clear(self._edit([0, 0, 0.2, 0.33]), s, 1920, 1080, 1048, 1080)
+        self.assertIsNone(patch)
+        left = moved["focus"][0] * 1920 - 1048 / 2
+        self.assertGreaterEqual(left, 0.2 * 1920)                     # the window starts right of the map
+        self.assertEqual(s["focus"], [0.2, 0.5])                      # the edit itself is untouched
+
+    def test_clear_or_facecam_windows_stay(self):
+        from nookcut.render import minimap_clear
+        from nookcut.edit import seg
+        s = seg(0, 4, "highlight")
+        s["focus"] = [0.7, 0.5]
+        self.assertIs(minimap_clear(self._edit([0, 0, 0.2, 0.33]), s, 1920, 1080, 1048, 1080)[0], s)
+        s["focus"] = [0.2, 0.5]
+        self.assertIs(minimap_clear(self._edit([0, 0, 0.2, 0.33], "facecam"), s, 1920, 1080, 1048, 1080)[0], s)
+
+    def test_minimap_is_blurred_only_when_it_cannot_be_avoided(self):
+        from unittest import mock
+        import tempfile
+        from nookcut import render as r
+        from nookcut.edit import seg
+        edit = {**self._edit([0.3, 0.0, 0.4, 0.33]), "fps": "60", "source_audio": "duck", "source_hdr": None,
+                "source": "in.mp4"}
+        s = seg(10, 14, "highlight")
+        moved, patch = r.minimap_clear(edit, s, 1920, 1080, 1048, 1080)
+        self.assertEqual(patch, [576, 0, 768, 356])                   # a wide map in the middle: no way round
+        cmds = []
+        with tempfile.TemporaryDirectory() as work, mock.patch.object(r, "run", lambda c, *a, **k: cmds.append(c)):
+            r._segment(edit, 0, s, work, "/x/Impact.ttf", None, 1920, 1080, look=r.color_plan(edit))
+        graph = cmds[0][cmds[0].index("-filter_complex") + 1]
+        self.assertIn("[m2]crop=768:356:576:0,gblur=sigma=28[mb];[m1][mb]overlay=576:0", graph)
+
+
+class BorderCaptions(unittest.TestCase):
+    """Captions centred on the action's borders, over a translucent slab."""
+
+    def test_band_puts_captions_on_its_edges_and_full_framing_keeps_its_places(self):
+        from nookcut.render import _layout
+        band = _layout({"orientation": "vertical", "width": 1080, "height": 1920})
+        self.assertEqual((band["hook_mid"], band["speech_mid"]), (470, 1370))       # the band's top and bottom
+        full = _layout({"orientation": "vertical", "width": 1080, "height": 1920, "framing": "full"})
+        self.assertNotIn("hook_mid", full)                                         # no border to sit on
+        self.assertNotIn("hook_mid", _layout({"orientation": "wide", "width": 1920, "height": 1080}))
+
+    def test_hook_block_is_centred_on_the_border_with_slabs(self):
+        import tempfile
+        from nookcut import render as r
+        from nookcut.edit import seg
+        L = r._layout({"orientation": "vertical", "width": 1080, "height": 1920})
+        s = seg(0, 2, "hook", top="THIS GOT|INSANE")
+        with tempfile.TemporaryDirectory() as work:
+            f = r._text(work, 0, s, 2.0, L, "/x/Impact.ttf", 1080, 1920, edit={"caption_box": True})
+            lines = [x for x in f if x.startswith("drawtext")]
+            ys = [int(x.split(":y=")[1].split(":")[0]) for x in lines]
+            self.assertEqual(ys, [470 - (140 + 120) // 2, 470 - (140 + 120) // 2 + 140])   # middle on 470
+            self.assertIn("box=1:boxcolor=black@0.5", lines[0])
+            plain = r._text(work, 0, s, 2.0, L, "/x/Impact.ttf", 1080, 1920, edit={"caption_box": False})
+            self.assertNotIn("box=1", plain[0])
+
+    def test_highlight_style_draws_one_slab_per_phrase(self):
+        from nookcut.subtitles import ass
+        out = ass([[0, .4, "lets"], [.4, .8, "go"]], 1, 1080, 1920, 1370, 112, "/x/Impact.ttf", 16, boxed=True)
+        self.assertEqual(out.count("Slab,,"), 1)                       # one slab under the whole phrase
+        self.assertEqual(out.count("Words,,"), 2)                      # each word highlighted in turn on top
+        self.assertIn("\\an5\\pos(540,1370)", out)                     # centred on the border
+        self.assertNotIn("fscx108", out)                               # no pop: it would break the slab
+
+
 if __name__ == "__main__":
     unittest.main()

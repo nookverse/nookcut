@@ -6,6 +6,13 @@ recording analyses in a minute or two with no Python dependencies:
   redness     red/green ratio on the left/right screen edges (damage / death vignettes)
   motion      mean abs difference to the previous sample
   loudness    RMS dBFS of the loudest audio track (None when the recording is silent)
+  where       where the motion is per sample: [x, y, spread] as fractions of the picture (None when
+              too little moves); spread ~0.41 is motion all over (a camera turn), small is one spot
+  grid        16x9 blocks over the whole recording: mean motion and brightness per block, to find
+              screen corners that stay still while the picture moves (a HUD minimap)
+  cues        times the user's on-screen signs show (a kill icon, a victory banner): each sign's box,
+              cropped at full size 5 times a second in the same decode, compared (SSIM) with a frame
+              where the user saw it
   scenes      camera/shot cuts, from ffmpeg's scdet on a 10 fps copy in the same decode (+-0.1 s)
   bars        black-bar boxes (letterbox/pillarbox) per sample, from ffmpeg's cropdetect, same decode
 
@@ -24,7 +31,7 @@ import statistics
 import tempfile
 from array import array
 
-from .errors import MediaError
+from .errors import InputError, MediaError
 from .preflight import has_filter
 from .probe import probe
 from .tasks import Task, filter_quote, run
@@ -43,17 +50,31 @@ SCENE_MERGE = 0.4               # cuts closer than this are one transition (flas
 BAR_MIN = 0.02                  # an edge band thinner than this share of the frame isn't a bar
 BAR_AGREE = 0.6                 # share of a segment's samples that must show the same bar
 BAR_RECUR = 0.2                 # share of the whole recording's samples that must show it too
+GRID_W, GRID_H = 16, 9          # blocks of 4x4 scan pixels
+CUE_RATE = 5                    # on-screen signs are checked this many times a second
+CUE_SIZE = 64                   # ... at this size (a sign's box is scaled to it, in grey)
+CUE_MERGE = 1.0                 # matches closer than this are one appearance
+CUE_BOOST = 2.5                 # excitement added around each appearance
+MIN_MOTION = 1.5                # mean per-pixel change below this: nothing to aim at
 
 
 class _Frames:
     """Turns a raw rgb24 byte stream into per-sample signals as it arrives (no full decode in memory)."""
 
-    def __init__(self, on_sample=None):
+    def __init__(self, on_sample=None, ignore: list | None = None):
         self.size = W * H * 3
+        # boxes whose motion isn't the action (a facecam, the user's HUD signs): left out of "where"
+        self.ignore = [(int(b[0] * W), int(b[1] * H), int((b[0] + b[2]) * W + 0.999), int((b[1] + b[3]) * H + 0.999))
+                       for b in ignore or []]
         self.edge = [(y * W + x) * 3 for y in range(H) for x in (0, 1, 2, W - 3, W - 2, W - 1)]
         self.bright, self.red, self.motion = [], [], []
         self.buf, self.prev, self.on_sample = bytearray(), None, on_sample
         self.bars = None
+        self.where: list = []
+        self.prev_g = None
+        self.grid_motion = [0.0] * (GRID_W * GRID_H)
+        self.grid_bright = [0.0] * (GRID_W * GRID_H)
+        self.diffs = 0
 
     def feed(self, chunk: bytes) -> None:
         self.buf += chunk
@@ -67,26 +88,135 @@ class _Frames:
             self.motion.append(0.0 if self.prev is None else
                                round(sum(abs(a - b) for a, b in zip(sample, self.prev)) / len(sample), 1))
             self.prev = sample
+            self._where(f)
         del self.buf[:n * self.size]
         if n and self.on_sample:
             self.on_sample(len(self.bright) / RATE)
 
 
+    def _where(self, f) -> None:
+        """Where the picture changed since the last sample (green is close to luma), and the
+        running per-block motion and brightness for the whole recording."""
+        g = f[1::3]
+        bw = W // GRID_W
+        for y in range(H):
+            row = g[y * W:(y + 1) * W]
+            base = y // (H // GRID_H) * GRID_W
+            for bx in range(GRID_W):
+                self.grid_bright[base + bx] += sum(row[bx * bw:(bx + 1) * bw])
+        if self.prev_g is None:
+            self.prev_g = g
+            self.where.append(None)
+            return
+        d = [abs(a - b) for a, b in zip(g, self.prev_g)]
+        self.prev_g = g
+        self.diffs += 1
+        grid_d = d
+        if self.ignore:
+            d = list(d)
+            for x0, y0, x1, y1 in self.ignore:
+                for y in range(max(0, y0), min(H, y1)):
+                    d[y * W + max(0, x0):y * W + min(W, x1)] = [0] * (min(W, x1) - max(0, x0))
+        cols = [sum(d[x::W]) for x in range(W)]
+        rows = [sum(d[y * W:(y + 1) * W]) for y in range(H)]
+        for y in range(H):
+            row = grid_d[y * W:(y + 1) * W]
+            base = y // (H // GRID_H) * GRID_W
+            for bx in range(GRID_W):
+                self.grid_motion[base + bx] += sum(row[bx * bw:(bx + 1) * bw])
+        total = sum(rows)
+        if total < MIN_MOTION * W * H:
+            self.where.append(None)
+            return
+        cx = sum(c * (x + 0.5) for x, c in enumerate(cols)) / total / W
+        cy = sum(r * (y + 0.5) for y, r in enumerate(rows)) / total / H
+        vx = sum(c * ((x + 0.5) / W - cx) ** 2 for x, c in enumerate(cols)) / total
+        vy = sum(r * ((y + 0.5) / H - cy) ** 2 for y, r in enumerate(rows)) / total
+        self.where.append([round(cx, 3), round(cy, 3), round(math.sqrt(vx + vy), 3)])
+
+    def grid(self) -> dict:
+        n, px = len(self.bright) or 1, (W // GRID_W) * (H // GRID_H)
+        return {"cols": GRID_W, "rows": GRID_H,
+                "motion": [round(v / max(1, self.diffs) / px, 2) for v in self.grid_motion],
+                "bright": [round(v / n / px, 1) for v in self.grid_bright]}
+
+
+def cue_crop(box: list) -> str:
+    x, y, w, h = box
+    even = lambda e: f"trunc({e}/2)*2"   # noqa: E731
+    return (f"crop=w='max(2,{even(f'iw*{w}')})':h='max(2,{even(f'ih*{h}')})':x='{even(f'iw*{x}')}'"
+            f":y='{even(f'ih*{y}')}',scale={CUE_SIZE}:{CUE_SIZE},format=gray")
+
+
+def _cue_refs(path: str, cues: list[dict], task: Task | None, made: list[str]) -> list[str]:
+    """A still of each sign's box at the moment the user gave (the reference it is matched against).
+    Each file is also added to `made` as soon as it exists, so a failure leaves nothing behind."""
+    refs = []
+    for k, c in enumerate(cues):
+        fd, p = tempfile.mkstemp(prefix=f"nookcut_cue{k}_", suffix=".png")
+        os.close(fd)
+        refs.append(p)
+        made.append(p)
+        run(["ffmpeg", "-v", "error", "-y", "-ss", f"{c['t']:.3f}", "-i", path, "-frames:v", "1",
+             "-vf", cue_crop(c["box"]), p], task, f"reading the sign '{c['label']}'")
+    return refs
+
+
+def parse_ssim(stats: str) -> list[float]:
+    """ssim's stats file -> one similarity (0-1) per checked frame."""
+    return [float(m) for m in re.findall(r"All:([0-9.]+)", stats)]
+
+
+def cue_times(values: list[float], at: float, rate: float = CUE_RATE) -> dict:
+    """When a sign shows: the starts of runs of frames that look like the reference. The bar sits
+    between the usual look of the box and the reference moment itself, so a sign over changing
+    scenery is still found; a sign that barely differs from its surroundings is reported as such."""
+    if not values:
+        return {"at": [], "note": "the sign's box couldn't be read"}
+    ordered = sorted(values)
+    usual = ordered[len(ordered) // 2]
+    k = min(len(values) - 1, int(round(at * rate)))
+    ref = max(values[max(0, k - 2):k + 3])
+    if ref - usual < 0.15:
+        return {"at": [], "note": ("the box looks the same most of the time; pick a moment where the sign "
+                                   "is clearly on screen, and a box tight around it")}
+    bar = max(0.5, usual + 0.6 * (ref - usual))
+    out: list[float] = []
+    last = None
+    for i, v in enumerate(values):
+        if v >= bar:
+            t = i / rate
+            if last is None or t - last > CUE_MERGE:
+                out.append(round(t, 2))
+            last = t
+    return {"at": out, "bar": round(bar, 3)}
+
+
 def _decode(path: str, hwaccel: str | None, task: Task | None, on_sample=None,
-            scene_threshold: float = DEFAULTS["scene_threshold"]) -> tuple[_Frames, list[float] | None]:
+            scene_threshold: float = DEFAULTS["scene_threshold"],
+            cues: list[dict] | None = None, ignore: list | None = None) -> tuple[_Frames, list[float] | None]:
     """One decode: the 64x36 signal frames, and scene cuts (None when ffmpeg has no scdet)."""
     scenes, bars = has_filter("scdet"), has_filter("cropdetect")
+    cues = cues or []
+    refs: list[str] = []
     files = []
-    for name in ("cuts", "bars"):
+    for name in ["cuts", "bars"] + [f"cue{k}" for k in range(len(cues))]:
         fd, p = tempfile.mkstemp(prefix=f"nookcut_{name}_", suffix=".txt")
         os.close(fd)
         files.append(p)
-    cuts_file, bars_file = files
+    cuts_file, bars_file, cue_files = files[0], files[1], files[2:]
     try:
+        refs += _cue_refs(path, cues, task, refs) if cues else []
         for accel in ([hwaccel, None] if hwaccel else [None]):
-            frames = _Frames(on_sample)
-            cmd = ["ffmpeg", "-v", "error"] + (["-hwaccel", accel] if accel else []) + ["-i", path, "-an"]
+            frames = _Frames(on_sample, ignore)
+            cmd = ["ffmpeg", "-v", "error"] + (["-hwaccel", accel] if accel else []) + ["-i", path]
+            for ref in refs:
+                cmd += ["-i", ref]
+            cmd += ["-an"]
             extra = []
+            for k, c in enumerate(cues):
+                extra.append(f"fps={CUE_RATE},{cue_crop(c['box'])}[cm{k}];[{k + 1}:v]format=gray[cr{k}];"
+                             f"[cm{k}][cr{k}]ssim=stats_file={filter_quote(cue_files[k])},nullsink")
             if scenes:
                 extra.append(f"fps={SCENE_RATE},scale=160:90,scdet=t={scene_threshold},"
                              f"metadata=print:key=lavfi.scd.time:file={filter_quote(cuts_file)},nullsink")
@@ -107,14 +237,20 @@ def _decode(path: str, hwaccel: str | None, task: Task | None, on_sample=None,
                     cuts = merge_cuts(f.read()) if scenes else None
                 with open(bars_file, encoding="utf-8") as f:
                     frames.bars = parse_bars(f.read()) if bars else None
+                frames.cues = []
+                for c, cf in zip(cues, cue_files):
+                    with open(cf, encoding="utf-8") as f:
+                        frames.cues.append({"label": c["label"], "t": c["t"], "box": c["box"],
+                                            **cue_times(parse_ssim(f.read()), c["t"])})
                 return frames, cuts
             except MediaError:
                 if not accel:
                     raise
         raise AssertionError("unreachable")
     finally:
-        for p in files:
-            os.remove(p)
+        for p in files + refs:
+            if os.path.exists(p):
+                os.remove(p)
 
 
 def parse_bars(metadata: str) -> list[list]:
@@ -194,13 +330,20 @@ def _loudness(path: str, track: int, n: int, task: Task | None, on_progress=None
     return out
 
 
-def signals(path: str, hwaccel: str | None = None, task: Task | None = None) -> dict:
+def signals(path: str, hwaccel: str | None = None, task: Task | None = None, cues: list[dict] | None = None,
+            ignore: list | None = None) -> dict:
     task = task or Task(track=False)
     task.begin("reading the source", note="checking streams and audio tracks")
     info = probe(path, task)
     dur = info["duration"]
     task.begin("scanning the video", dur, note=f"{dur / 60:.1f} min of footage")
-    frames, scenes = _decode(path, hwaccel, task, lambda t: task.set(t))
+    late = [c for c in cues or [] if c["t"] >= dur]
+    if late:
+        raise InputError(f"The sign '{late[0]['label']}' is set at {late[0]['t']:.1f}s, after the recording ends "
+                         f"({dur:.1f}s).", "Give a time when the sign is on screen.")
+    # the user's sign boxes and facecam move without being the action
+    ignore = list(ignore or []) + [c["box"] for c in cues or []]
+    frames, scenes = _decode(path, hwaccel, task, lambda t: task.set(t), cues=cues, ignore=ignore)
     if not frames.bright:
         raise MediaError("Scanning the video failed: no frames could be decoded.",
                          "The file may be damaged; try re-exporting it.")
@@ -211,7 +354,8 @@ def signals(path: str, hwaccel: str | None = None, task: Task | None = None) -> 
         task.begin("measuring loudness", dur, note=f"audio track {best['index'] + 1}")
         loud = _loudness(path, best["index"], len(frames.bright), task, lambda t: task.set(t))
     return {"info": info, "rate": RATE, "brightness": frames.bright, "redness": frames.red,
-            "motion": frames.motion, "loudness": loud, "scenes": scenes, "bars": frames.bars}
+            "motion": frames.motion, "loudness": loud, "scenes": scenes, "bars": frames.bars,
+            "where": frames.where, "grid": frames.grid(), "cues": getattr(frames, "cues", [])}
 
 
 def dark_events(sig: dict, params: dict) -> list[dict]:
@@ -286,6 +430,10 @@ def moment_scores(sig: dict) -> list[float]:
         if sig["brightness"][k] < 35:
             z -= 3
         out.append(round(z, 3))
+    for c in sig.get("cues") or []:   # the user's own signs are the surest moments there are
+        for t in c["at"]:
+            for k in range(max(0, int((t - 1.0) * sig["rate"])), min(len(out), int((t + 1.5) * sig["rate"]) + 1)):
+                out[k] = round(out[k] + CUE_BOOST, 3)
     return out
 
 
@@ -314,17 +462,22 @@ def peak_times(scores: list[float], rate: float, lo: float, hi: float, k: int = 
 
 def analyze(path: str, out_json: str | None = None, params: dict | None = None,
             key_moments: list[dict] | None = None, hwaccel: str | None = None,
-            task: Task | None = None, more_stages: tuple = ()) -> dict:
+            task: Task | None = None, more_stages: tuple = (), cues: list[dict] | None = None,
+            ignore: list | None = None) -> dict:
     p = {**DEFAULTS, **(params or {})}
     if task:
         task.plan(("reading the source", 1), ("scanning the video", 6), ("measuring loudness", 2),
                   ("detecting moments", 0.2), *more_stages)
-    sig = signals(path, hwaccel, task)
+    sig = signals(path, hwaccel, task, cues, ignore)
     if task:
         task.begin("detecting moments")
     events = dark_events(sig, p)
+    # a sign named like a win (victory, winner, final kill) marks the win at its last appearance;
+    # signs that repeat (a kill icon) only raise the excitement around each appearance
+    signed = [{"t": c["at"][-1], "label": c["label"]} for c in sig.get("cues") or []
+              if c["at"] and any(w in c["label"].lower() for w in ("win", "victory", "final", "champion"))]
     result = {"signals": sig, "params": p, "events": events,
-              "gameplay": gameplay(sig, events, p, key_moments or []),
+              "gameplay": gameplay(sig, events, p, signed + (key_moments or [])),
               "scores": moment_scores(sig)}
     if out_json:
         with open(out_json, "w") as f:
@@ -357,6 +510,59 @@ def summary(result: dict) -> dict:
         "win_at": g["win"]["onset"] if g["win"] else None,
         "final_attempt": g["final_attempt"],
         "fades": _listed(cuts, lambda e: e["end"] - e["start"]),   # fades that aren't deaths; longest first
+        **({"cues": {c["label"]: {"count": len(c["at"]), "at": c["at"][:SUMMARY_LIST],
+                                  **({"note": c["note"]} if c.get("note") else {})}
+                     for c in result["signals"].get("cues") or []}} if result["signals"].get("cues") else {}),
         "scene_cuts": (len(result["signals"]["scenes"]) if result["signals"].get("scenes") is not None
                        else "not detected (this ffmpeg has no scdet filter)"),
     }
+
+
+HUD_STILL = 0.6    # a HUD block moves at most this share of the picture's mean motion (a map scrolls a little)
+HUD_ORDER = ("top-left", "top-right", "bottom-right", "bottom-left")   # where games usually put the map
+HUD_CLEAR = 1.5    # a corner must score this much above the next to beat a usual map corner
+HUD_DARK = 20      # mean brightness below this is black bars, not a map
+
+
+def hud_corner(grid: dict | None) -> dict | None:
+    """Guess the minimap: the largest box in a screen corner whose blocks stay still while the rest
+    of the picture moves, and isn't black. Returns {"box": [x, y, w, h] as fractions, "corner",
+    "still"} or None (no corner stands out: the picture barely moves, or nothing is still)."""
+    if not grid:
+        return None
+    cols, rows, M, B = grid["cols"], grid["rows"], grid["motion"], grid["bright"]
+    mean = sum(M) / len(M)
+    if mean < 0.5:
+        return None
+    still = [m / mean <= HUD_STILL and b >= HUD_DARK for m, b in zip(M, B)]
+    found = {}
+    for corner, (left, top) in {"top-left": (True, True), "top-right": (False, True),
+                                "bottom-right": (False, False), "bottom-left": (True, False)}.items():
+        best = None
+        for w in range(2, cols // 3 + 1):
+            for h in range(2, rows // 2 + 1):
+                xs = range(w) if left else range(cols - w, cols)
+                ys = range(h) if top else range(rows - h, rows)
+                if not all(still[y * cols + x] for y in ys for x in xs):
+                    continue
+                calm = 1 - sum(M[y * cols + x] for y in ys for x in xs) / (w * h) / mean
+                score = w * h * (0.5 + calm)
+                if not best or score > best[0]:
+                    best = (score, corner, [xs[0] / cols, ys[0] / rows, w / cols, h / rows], calm)
+        if best:
+            found[corner] = best
+    if not found:
+        return None
+    ranked = sorted(found.values(), key=lambda b: -b[0])
+    pick = ranked[0]
+    if len(ranked) > 1 and ranked[0][0] < HUD_CLEAR * ranked[1][0]:
+        # several still corners, none clearly the map: the usual map corner among them
+        pick = next(found[c] for c in HUD_ORDER if c in found)
+    # the map's edge blocks are only partly still, so the box grows half a block on its inner sides
+    x, y, w, h = pick[2]
+    gx, gy = 0.5 / cols, 0.5 / rows
+    left, top = pick[1].endswith("left"), pick[1].startswith("top")
+    x, w = (x, min(1 - x, w + gx)) if left else (max(0.0, x - gx), w + min(gx, x))
+    y, h = (y, min(1 - y, h + gy)) if top else (max(0.0, y - gy), h + min(gy, y))
+    return {"box": [round(v, 4) for v in (x, y, w, h)], "corner": pick[1], "still": round(pick[3], 2),
+            "others": [b[1] for b in ranked if b is not pick]}

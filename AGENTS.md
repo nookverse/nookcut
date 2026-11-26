@@ -44,9 +44,12 @@ src/nookcut/
   preflight.py   ffmpeg/ffprobe/filters/encoders/font checks, install hints per OS
   brief.py       Brief: what the user wants (title, game, orientation, max length, region, music...)
   probe.py       ffprobe wrapper; audio peaks
-  analyze.py     64x36 @ 2 fps signal scan + scdet scene cuts + cropdetect bars -> deaths/win/moments (no ML)
-  story.py       story templates (comeback | victory | highlights) fitted to the length budget
-  copywriting.py offline captions/titles/descriptions/hashtags from language packs (copydata/*.json)
+  analyze.py     64x36 @ 2 fps signal scan (motion, where it moves, still corners) + scdet cuts + cropdetect
+                 bars + the user's on-screen cues (SSIM) -> deaths/win/moments (no ML)
+  story.py       story templates (comeback | victory | highlights) fitted to the length budget; shot aim;
+                 the split layout's top panel (facecam or minimap)
+  copywriting.py offline captions/titles/descriptions/hashtags from language packs (copydata/*.json);
+                 hook quotes from the transcript
   models.py      optional local models (whisper); `nookcut models install` is the only network code
   color.py       HDR: detect HDR10/HLG, tone map to SDR (Apple GPU or zscale), HDR10 output, caption colours
   transcribe.py  speech to text with ffmpeg's whisper filter; quiet parts cut out for accurate times
@@ -152,6 +155,19 @@ playbook (see `gemini-extension.json`), not contributor guidance.
   Dolby Vision / HDR10+ dynamic metadata are dropped (the base picture is used); Dolby Vision
   profile 5 is refused. Output is at most 60 fps (high frame rate sources feed real-frame slow motion).
 - `framing: full` sets each Resolve clip's Pan/Tilt from its focus; the sign and units are assumed,
-  not yet checked in Resolve, and pans (`focus_end`) aren't carried over.
+  not yet checked in Resolve, and pans (`focus_end`) aren't carried over. `framing: split`'s top panel
+  isn't rebuilt in Resolve at all (the FINAL timeline has it).
+- Automatic aim follows where the 64x36 scan sees motion; it can pick a moving crowd or effect over
+  the player. The minimap guess is the largest still screen corner, so it can include still HUD or
+  scenery next to the map. Neither looks for faces: a facecam must be given (`facecam`).
+- Swear censoring and the `terms` fixer are tuned for English (the swear list; letter likeness).
+  A single misheard word is only reported (`speech.check`), not replaced, since it can be a real word.
+  Emphasis (red streamer captions) is judged by loudness and "!" only.
+- Split with the minimap on top moves the action window off the minimap's box (blurring that box
+  only when no position clears it), so the box must be right: a wrong guess moves the wrong area.
+  Player names are never blurred or avoided (the owner's rule: not worth the work).
+- Cues (`cues`) match a fixed box against one reference frame (SSIM at 5 fps), so a sign that moves,
+  animates a lot or changes colour per event is missed; hooks from speech judge "shouted" by loudness
+  and punctuation only.
 - Detection is tuned on action games (death = fade after a red vignette); other genres fall back
   to the generic highlights template.

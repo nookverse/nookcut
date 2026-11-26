@@ -58,7 +58,8 @@ _kwargs = {"instructions": (
     "Long steps accept wait=false and return a job_id: poll job_status to show the user progress (percent, "
     "stage, ETA) and use cancel_job if they want to stop. Errors carry a plain-language message and a hint: "
     "relay them to the user. Framing is band (blurred bands) by default; use framing='full' (picture fills "
-    "the frame) only when the user asks, and aim each shot with update_edit focus. Never post on the user's behalf.")}
+    "the frame) or 'split' (facecam, else the minimap, on top) only when the user asks. Shots are aimed at the "
+    "action automatically: check preview_plan and fix with update_edit focus. Never post on the user's behalf.")}
 try:
     mcp = _Server("nookcut", version=__version__, **_kwargs)
 except TypeError:
@@ -225,7 +226,8 @@ def check_environment() -> dict:
 def _brief(source, title, video_type, game, orientation, max_duration, region, language, music, music_file,
            source_audio, platforms, key_moments, online, subtitles="auto", speech_language="auto",
            hdr="sdr", fps="auto", broll_dir="", voiceover="off", voice="", voice_speed=1.0, copy_pack="",
-           framing="band") -> Brief:
+           framing="band", facecam="", facecam_offset=0.0, minimap="", cues=None, caption_style="highlight",
+           terms=None, label="", panel_style="card", censor=True, caption_box=True) -> Brief:
     if not video_type:
         video_type = "gameplay" if game else "generic"
     return Brief(title=title, source=_path(source, must_exist=True), video_type=video_type, game=game,
@@ -236,7 +238,11 @@ def _brief(source, title, video_type, game, orientation, max_duration, region, l
                  speech_language=speech_language or "auto", hdr=hdr or "sdr", fps=fps or "auto",
                  broll_dir=_path(broll_dir, must_exist=bool(broll_dir)), voiceover=voiceover or "off",
                  voice=voice or "", voice_speed=voice_speed or 1.0, copy_pack=copy_pack or "",
-                 framing=framing or "band")
+                 framing=framing or "band", minimap=minimap or "", cues=cues or [],
+                 facecam=(facecam if not facecam or ("," in facecam and not os.path.exists(os.path.expanduser(facecam)))
+                          else _path(facecam, must_exist=True)), facecam_offset=facecam_offset or 0.0,
+                 caption_style=caption_style or "highlight", terms=terms or [], label=label or "",
+                 panel_style=panel_style or "card", censor=censor, caption_box=caption_box)
 
 
 @_tool(annotations=WRITES)
@@ -246,7 +252,11 @@ def create_project(project_dir: str, source: str, title: str, video_type: str = 
                    platforms: list[str] | str | None = None, key_moments: list[dict] | None = None,
                    online: bool = False, subtitles: str = "auto", speech_language: str = "auto",
                    hdr: str = "sdr", fps: str = "auto", broll_dir: str = "", voiceover: str = "off",
-                   voice: str = "", voice_speed: float = 1.0, copy_pack: str = "", framing: str = "band") -> dict:
+                   voice: str = "", voice_speed: float = 1.0, copy_pack: str = "", framing: str = "band",
+                   facecam: str = "", facecam_offset: float = 0.0, minimap: str = "",
+                   cues: list[dict] | None = None, caption_style: str = "highlight",
+                   terms: list[str] | None = None, label: str = "", panel_style: str = "card",
+                   censor: bool = True, caption_box: bool = True) -> dict:
     """Step 1. Save the brief into project_dir. video_type: gameplay|talking|sports|tutorial|generic
     (empty = gameplay if game is set). orientation: vertical|square|wide. music: ai|none|file.
     source_audio: keep|duck|mute. platforms: youtube_shorts, tiktok, instagram_reels, facebook_reels,
@@ -261,11 +271,26 @@ def create_project(project_dir: str, source: str, title: str, video_type: str = 
     name from list_voices (empty = the best for the language); voice_speed 0.7-1.5. copy_pack: a
     caption/title style pack the user installed (suggest_copy lists the installed ones). framing: band
     (default: a sharp band over a blurred copy) | full (the picture fills the whole frame, no blur or
-    borders; aim each shot with update_edit focus), only when the user picks it. Relay any warnings."""
+    borders) | split (vertical: the facecam on top, or the game's minimap when there's no facecam,
+    the action below), only when the user picks it. Shots are aimed at the action automatically.
+    facecam: where the webcam is in the recording as "x,y,w,h" (fractions of the picture; read it
+    off get_frames), or a separate webcam recording file (facecam_offset: seconds it started after
+    the recording). minimap: the minimap box "x,y,w,h" (empty = found automatically). cues: signs
+    on screen that mark moments, as [{"label": "kill", "t": a time the sign shows, "box": [x, y, w,
+    h]}]; NookCut finds every time each one appears and builds the edit around them. panel_style
+    (split): card (default: a facecam card over blur, the stream-clip look) | full (full width).
+    caption_style: highlight (default: a phrase with the spoken word in yellow) | streamer (1-2 word
+    cards with hard cuts; shouted or sworn words red and lower), for stream clips. censor: swear
+    words shown as F*CK (default true). caption_box: a translucent dark slab behind captions, which sit
+    centred on the gameplay's borders (default true). terms: names speech-to-text gets wrong (game terms, players),
+    fixed in the captions. label: a short context label shown in the first second ("ARGONAUT|OPERATOR")
+    that tells viewers what they're looking at.
+    Relay any warnings."""
     _ready()
     b = _brief(source, title, video_type, game, orientation, max_duration, region, language, music, music_file,
                source_audio, platforms, key_moments, online, subtitles, speech_language, hdr, fps, broll_dir,
-               voiceover, voice, voice_speed, copy_pack, framing)
+               voiceover, voice, voice_speed, copy_pack, framing, facecam, facecam_offset, minimap, cues,
+               caption_style, terms, label, panel_style, censor, caption_box)
     out = pl.new_project(_path(project_dir), b)
     out["next"] = "analyze_video (wait=false, then poll job_status)"
     return out
@@ -278,19 +303,25 @@ def auto_edit(source: str, title: str, project_dir: str = "", video_type: str = 
               platforms: list[str] | str | None = None, key_moments: list[dict] | None = None,
               file_name: str = "", subtitles: str = "auto", template: str = "", hdr: str = "sdr",
               broll_dir: str = "", voiceover: str = "off", voice: str = "", copy_pack: str = "",
-              framing: str = "band", wait: bool = True) -> dict:
+              framing: str = "band", facecam: str = "", facecam_offset: float = 0.0, minimap: str = "",
+              cues: list[dict] | None = None, caption_style: str = "highlight", terms: list[str] | None = None,
+              label: str = "", panel_style: str = "card", wait: bool = True) -> dict:
     """Make the finished short in ONE call, offline: analyze, plan, captions, original music,
     render, DaVinci Resolve files and publish kit. Only source and title are needed. Best path for
     small or local models. Speech is captioned word by word when a speech model is installed
     (subtitles: auto|on|off). template: empty = auto, or "tighten" to keep the whole recording and
     cut out its pauses (jump cuts). HDR recordings are converted to normal colour; hdr="keep" keeps
-    HDR10/HLG instead. framing="full" (only when the user asks for it) fills the frame with the centre of the picture (no blurred
-    bands); check the result, since the action may sit off-centre. Takes a few minutes; wait=false
+    HDR10/HLG instead. template "clip" keeps one continuous stretch (no cards, no generated music),
+    the way stream clips are posted. framing, facecam, minimap, cues, caption_style, terms, label and
+    panel_style as in create_project (full and split
+    aim each shot at the action automatically; check the result). Takes a few minutes; wait=false
     returns a job_id for job_status."""
     _ready()
     b = _brief(source, title, video_type, game, orientation, max_duration, region, language, music, "",
                source_audio, platforms, key_moments, False, subtitles, hdr=hdr, broll_dir=broll_dir,
-               voiceover=voiceover, voice=voice, copy_pack=copy_pack, framing=framing)
+               voiceover=voiceover, voice=voice, copy_pack=copy_pack, framing=framing, facecam=facecam,
+               facecam_offset=facecam_offset, minimap=minimap, cues=cues, caption_style=caption_style,
+               terms=terms, label=label, panel_style=panel_style)
     project = _path(project_dir) or os.path.join(os.path.dirname(b.source),
                                                   pl.slug(title).lower() + "-nookcut")
 
@@ -369,7 +400,9 @@ def get_transcript(project_dir: str, start: float = 0, end: float = 0) -> dict:
 def plan_edit(project_dir: str, template: str = "") -> dict:
     """Step 3. Build the edit from a story template (comeback | victory | highlights; empty = auto),
     with captions from the built-in library. "tighten" instead keeps the whole recording and cuts out
-    its pauses (jump cuts for talks, podcasts, tutorials); the analysis `pauses` line says if it fits."""
+    its pauses (jump cuts for talks, podcasts, tutorials); the analysis `pauses` line says if it fits.
+    "clip" keeps one continuous stretch ending just after its biggest moment, with no cards and no
+    generated music (stream clips: pair it with caption_style streamer and a label)."""
     out = pl.make_plan(_path(project_dir, must_exist=True), template or None)
     out["next"] = "suggest_copy for other caption options (or keep these), then preview_plan"
     return out
@@ -382,12 +415,16 @@ def get_edit(project_dir: str) -> dict:
 
 
 @_tool(annotations=WRITES)
-def update_edit(project_dir: str, changes: list[dict], music_style: str = "", framing: str = "") -> dict:
+def update_edit(project_dir: str, changes: list[dict], music_style: str = "", framing: str = "",
+                panel: dict | None = None, caption_style: str = "", label: str | None = None) -> dict:
     """Change segments. Each change: {"i": index, ...fields} to update (top, bottom, src_in, src_out,
     speed, zoom, kind, words, focus, focus_end), {"i": index, "delete": true}, or
     {"insert_at": index, "segment": {...}}. framing: band | full for the whole video, only when the user
-asks (e.g. "full screen, no blur" or "back to the blurred style"); then render again. With framing full,
-    focus [x, y] is where the shot is aimed, as fractions of the picture (0.5, 0.5 = middle; x 0.3 =
+asks (e.g. "full screen, no blur", "facecam on top" or "back to the blurred style"); then render
+    again. panel (framing split): {"kind": "facecam"|"minimap", "box": [x, y, w, h]} as fractions of
+    the whole picture, to fix the top panel (preview_plan outlines it in magenta), "style": card|full.
+    caption_style: highlight | streamer. label: the context label in the first second ("" removes it). Shots are aimed at the
+    action automatically; with framing full or split, focus [x, y] is where the shot is aimed, as fractions of the picture (0.5, 0.5 = middle; x 0.3 =
     left of centre); focus_end [x, y] pans there over the segment (null = no pan); zoom 1-4 frames
     tighter. preview_plan outlines what each shot shows.
     '|' in a caption forces a line break; keep vertical lines <= 16 characters. words are the
@@ -421,10 +458,32 @@ asks (e.g. "full screen, no blur" or "back to the blurred style"); then render a
                 pl.refill_words(project_dir_real, segs[c["insert_at"]])
         else:
             segs[c["i"]].update({k: v for k, v in c.items() if k != "i"})
+            if "top" in c and segs[c["i"]].pop("top_from", None):
+                edit.pop("hook_note", None)          # the hook caption is the agent's own now
+            if "focus" in c or "focus_end" in c:
+                segs[c["i"]].pop("focus_by", None)   # aimed by hand now: never re-aimed automatically
             if ("src_in" in c or "src_out" in c) and "words" not in c:
                 pl.refill_words(project_dir_real, segs[c["i"]])
     if music_style:
         edit["music_style"] = music_style
+    if panel:
+        from .brief import box
+        old = edit.get("panel") or {}
+        new = {"kind": panel.get("kind") or old.get("kind") or "minimap", "by": "user",
+               "style": panel.get("style") or old.get("style") or "card"}
+        if old.get("file") and not panel.get("box"):
+            new.update(file=old["file"], offset=old.get("offset", 0))
+        if panel.get("box") is not None:
+            new["box"] = box(panel["box"])
+        elif (edit.get("panel") or {}).get("box"):
+            new["box"] = edit["panel"]["box"]
+        edit["panel"] = new
+    if caption_style:
+        from .brief import canonical
+        edit["caption_style"] = canonical("caption_style", caption_style)
+    if label is not None:
+        edit["label"] = label.strip()
+    pl.reaim(project_dir_real, edit)
     errors = ed.validate(edit, edit.get("source_duration"))
     if errors:
         raise ValueError("; ".join(errors))

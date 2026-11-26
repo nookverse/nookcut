@@ -12,8 +12,12 @@ MUSIC_MODES = ("ai", "none", "file")
 SOURCE_AUDIO = ("keep", "duck", "mute")
 SUBTITLES = ("auto", "on", "off")
 HDR_MODES = ("sdr", "keep")
-FRAMINGS = ("band", "full")   # band: sharp band over a blurred fill; full: the picture fills the frame
+FRAMINGS = ("band", "full", "split")   # band: sharp band over a blurred fill; full: the picture fills the
+                                        # frame; split (vertical): facecam or minimap on top, the action below
 FPS_MODES = ("auto", "60", "30")
+CAPTION_STYLES = ("highlight", "streamer")   # highlight: a phrase, the spoken word in yellow; streamer: 1-2
+                                             # word cards, hard cuts, shouted or sworn words red and lower
+PANEL_STYLES = ("card", "full")              # split's top: a facecam card over blur, or a full-width panel
 VOICEOVER = ("off", "captions")
 
 # Upload length caps in seconds for the short-form surfaces (check platform help pages; they change).
@@ -44,7 +48,13 @@ ALIASES = {
             "30": ("30fps", "29.97", "small", "low")},
     "framing": {"band": ("", "default", "classic", "blur", "blurred", "blur_fill", "fit"),
                 "full": ("full_bleed", "fullbleed", "bleed", "fill", "full_frame", "fullframe", "full_screen", "fullscreen", "edge_to_edge",
-                         "no_blur", "noblur", "crop")},
+                         "no_blur", "noblur", "crop"),
+                "split": ("stack", "stacked", "split_screen", "splitscreen", "facecam", "minimap", "panel",
+                          "top_panel", "cam_on_top", "two_panel")},
+    "caption_style": {"highlight": ("", "default", "karaoke", "phrase", "classic"),
+                      "streamer": ("stream", "twitch", "gaming", "word", "words", "one_word", "punchy", "bold")},
+    "panel_style": {"card": ("", "default", "box", "small", "inset", "centered", "centred"),
+                    "full": ("wide", "full_width", "fullwidth", "big", "panel")},
     "subtitles": {"auto": ("", "default"), "on": ("yes", "true", "always", "speech", "captions", "required"),
                   "off": ("no", "false", "none", "never")},
 }
@@ -73,6 +83,39 @@ def seconds(value) -> float:
     if not s or not m or not any(m.groups()):
         raise ValueError(f"max_duration {value!r} is not a length; use seconds like 60, '60s' or '1:00'")
     return float(m.group(1) or 0) * 60 + float(m.group(2) or 0)
+
+
+def box(value) -> list[float]:
+    """[x, y, w, h] as fractions of the picture, from a list or text like "0.01,0.02,0.2,0.3"."""
+    parts = value if isinstance(value, (list, tuple)) else re.split(r"[,\s]+", str(value).strip())
+    try:
+        x, y, w, h = (float(p) for p in parts)
+    except (TypeError, ValueError):
+        raise ValueError(f"box {value!r} needs four numbers: x, y, width, height (fractions of the picture)") from None
+    if not (0 <= x < 1 and 0 <= y < 1 and 0 < w <= 1 and 0 < h <= 1 and x + w <= 1.001 and y + h <= 1.001):
+        raise ValueError(f"box {value!r} must lie inside the picture: x, y, width, height between 0 and 1")
+    return [round(x, 4), round(y, 4), round(w, 4), round(h, 4)]
+
+
+def looks_like_box(value) -> bool:
+    try:
+        box(value)
+        return True
+    except ValueError:
+        return False
+
+
+def cue(value) -> dict:
+    """An on-screen sign to look for: {"label", "t" (a moment it shows), "box"}; text form "kill@10:42@x,y,w,h"."""
+    if not isinstance(value, dict):
+        parts = str(value).split("@")
+        if len(parts) != 3:
+            raise ValueError(f"cue {value!r} needs label@time@box, like 'kill@10:42@0.8,0.05,0.15,0.08'")
+        value = {"label": parts[0], "t": parts[1], "box": parts[2]}
+    label = str(value.get("label") or "").strip()
+    if not label or value.get("t") is None or value.get("box") is None:
+        raise ValueError("a cue needs a label, a time t where the sign is on screen, and its box")
+    return {"label": label[:40], "t": seconds(value["t"]), "box": box(value["box"])}
 
 
 def moment(value) -> dict:
@@ -118,6 +161,19 @@ class Brief:
     voice: str = ""                             # voice name (list_voices); empty = the best one for the language
     voice_speed: float = 1.0                    # 0.7-1.5
     copy_pack: str = ""                         # a named caption/title style pack (nookcut copy packs)
+    facecam: str = ""                           # framing split: where the webcam is, as a box "x,y,w,h" (fractions
+                                                # of the picture), or a separate webcam recording (a file)
+    facecam_offset: float = 0.0                 # a separate webcam file: seconds it starts after the recording
+    minimap: str = ""                           # framing split without a facecam: the minimap box "x,y,w,h"
+                                                # (empty = found automatically: a still corner of the screen)
+    caption_style: str = "highlight"            # speech captions: highlight | streamer (see CAPTION_STYLES)
+    censor: bool = True                         # swear words in captions shown as F*CK
+    caption_box: bool = True                    # a translucent dark slab behind captions
+    terms: list[str] = field(default_factory=list)  # names speech-to-text gets wrong (game terms, people)
+    label: str = ""                             # a short context label shown in the first second ("ARGONAUT|OPERATOR")
+    panel_style: str = "card"                   # framing split: card (facecam card over blur) | full (full width)
+    cues: list[dict] = field(default_factory=list)  # on-screen signs to find: [{"label": "kill", "t": 642.3,
+                                                # "box": [x, y, w, h]}] (a frame where the sign shows, and where)
     made_from: str = ""                         # "script" when the video was made from a script (script_to_video)
 
     def __post_init__(self):
@@ -146,6 +202,15 @@ class Brief:
         if isinstance(self.key_moments, (str, dict)):
             self.key_moments = [self.key_moments]
         self.key_moments = [moment(m) for m in self.key_moments or []]
+        self.cues = [cue(c) for c in self.cues or []]
+        self.caption_style = canonical("caption_style", self.caption_style)
+        self.panel_style = canonical("panel_style", self.panel_style)
+        if isinstance(self.terms, str):
+            self.terms = [t for t in re.split(r"\s*,\s*", self.terms) if t]
+        if isinstance(self.caption_box, str):
+            self.caption_box = self.caption_box.strip().lower() not in ("0", "false", "no", "off")
+        if isinstance(self.censor, str):
+            self.censor = self.censor.strip().lower() not in ("0", "false", "no", "off")
         if isinstance(self.online, str):
             self.online = self.online.strip().lower() in ("1", "true", "yes", "on")
 
@@ -175,6 +240,19 @@ class Brief:
             raise ValueError(f"fps {self.fps!r} is unknown; use one of {', '.join(FPS_MODES)}")
         if self.framing not in FRAMINGS:
             raise ValueError(f"framing {self.framing!r} is unknown; use one of {', '.join(FRAMINGS)}")
+        if self.caption_style not in CAPTION_STYLES:
+            raise ValueError(f"caption_style {self.caption_style!r} is unknown; use one of {', '.join(CAPTION_STYLES)}")
+        if self.panel_style not in PANEL_STYLES:
+            raise ValueError(f"panel_style {self.panel_style!r} is unknown; use one of {', '.join(PANEL_STYLES)}")
+        if len(self.label) > 40:
+            raise ValueError("label must be short: at most 40 characters (use | for a line break)")
+        if self.framing == "split" and self.orientation != "vertical":
+            raise ValueError("framing split is for vertical videos; use band or full for square and wide")
+        for name in ("facecam", "minimap"):
+            v = getattr(self, name)
+            if v and not looks_like_box(v) and (name == "minimap" or not os.path.isfile(os.path.expanduser(v))):
+                raise ValueError(f"{name} {v!r} is neither a box like '0.01,0.02,0.2,0.3' (x, y, width, height as "
+                                 "fractions of the picture)" + (" nor a video file" if name == "facecam" else ""))
         if self.max_duration < 10:
             raise ValueError("max_duration must be at least 10 seconds")
         unknown = [p for p in self.platforms if p not in PLATFORM_MAX]

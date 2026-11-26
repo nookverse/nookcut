@@ -6,6 +6,8 @@
   highlights  anything else                   (hook -> top moments in order -> question)
               talking/tutorial videos with a transcript pick whole sentences instead of fixed windows
   tighten     the whole recording minus its pauses (jump cuts; ask for it, never picked automatically)
+  clip        one continuous stretch, the strongest of the length, ending a moment after its biggest
+              peak: no cards, no slow motion, no generated music (the stream-clip way; ask for it)
 
 Captions come from the offline copy library (copywriting.py) in the brief's language. The agent
 may pick other options (suggest_copy) or, when the user allows web research, rewrite them.
@@ -15,13 +17,15 @@ from __future__ import annotations
 import re
 from bisect import bisect_left
 
-from .analyze import best_windows, content_box, peak_times
+import os
+
+from .analyze import best_windows, content_box, hud_corner, peak_times
 from .brief import Brief
 from .copywriting import Writer, caption_keys, wrap
 from .edit import output_fps, seg, total
 from .transcribe import caption_words, sentences, snap
 
-__all__ = ["add_speech", "choose_template", "clear_of_cuts", "crop_bars", "plan", "wrap"]
+__all__ = ["add_speech", "aim", "auto_focus", "mark_emphasis", "choose_template", "clear_of_cuts", "crop_bars", "plan", "wrap"]
 
 
 def choose_template(brief: Brief, analysis: dict) -> str:
@@ -51,7 +55,30 @@ def _base(brief: Brief, analysis: dict, template: str) -> dict:
             "music_style": "taiko" if brief.video_type == "gameplay" else "pulse",
             "source_audio": brief.source_audio if analysis["signals"]["loudness"] else "mute",
             "source_timecode": info["timecode"], "source_fps": info["fps"],
-            "source_duration": info["duration"], "segments": []}
+            "source_duration": info["duration"], "segments": [],
+            "caption_style": brief.caption_style, "censor": brief.censor, "caption_box": brief.caption_box,
+            **({"panel": panel_of(brief, analysis)} if brief.framing == "split" else {})}
+
+
+def panel_of(brief: Brief, analysis: dict | None) -> dict:
+    """Framing split's top panel: the facecam when the brief has one (a box in the recording or a
+    separate webcam file), else the game's minimap (the brief's box, else a still screen corner
+    found in the analysis, else the top-left corner)."""
+    from .brief import box, looks_like_box
+    if brief.facecam:
+        if looks_like_box(brief.facecam):
+            return {"kind": "facecam", "box": box(brief.facecam), "by": "user", "style": brief.panel_style}
+        return {"kind": "facecam", "file": os.path.abspath(os.path.expanduser(brief.facecam)),
+                "offset": float(brief.facecam_offset or 0), "by": "user", "style": brief.panel_style}
+    if brief.minimap:
+        return {"kind": "minimap", "box": box(brief.minimap), "by": "user", "style": brief.panel_style}
+    found = hud_corner((analysis or {}).get("signals", {}).get("grid"))
+    if found:
+        return {"kind": "minimap", "box": found["box"], "by": "guess", "corner": found["corner"],
+                "style": brief.panel_style, **({"others": found["others"]} if found.get("others") else {})}
+    from .render import DEFAULT_MINIMAP
+    return {"kind": "minimap", "box": list(DEFAULT_MINIMAP), "by": "default", "corner": "top-left",
+            "style": brief.panel_style}
 
 
 def _highlights(analysis, lo, hi, count, length=3.0):
@@ -223,7 +250,29 @@ def speech_highlights(brief: Brief, analysis: dict, words: list[list]) -> dict:
     return edit
 
 
-TEMPLATES = ("comeback", "victory", "highlights", "tighten")
+TEMPLATES = ("comeback", "victory", "highlights", "tighten", "clip")
+CLIP_TAIL = 2.0   # a clip ends this long after its biggest moment (the reaction), when it can
+
+
+def clip(brief: Brief, analysis: dict) -> dict:
+    """One take: the strongest continuous stretch up to max_duration, nudged so it ends just after
+    the biggest moment in it (the payoff and the reaction, then out: it loops well)."""
+    edit = _base(brief, analysis, "clip")
+    scores, rate = analysis["scores"], analysis["signals"]["rate"]
+    dur = analysis["signals"]["info"]["duration"]
+    length = min(brief.max_duration, dur)
+    found = best_windows(scores, rate, 0, dur, length, 1)
+    a, b = found[0] if found else (0.0, length)
+    k0, k1 = int(a * rate), min(len(scores), int(b * rate))
+    if k1 > k0:
+        peak = max(range(k0, k1), key=lambda k: scores[k]) / rate
+        end = min(dur, max(peak + CLIP_TAIL, length))   # never so early that the clip comes out short
+        a, b = max(0.0, end - length), end
+    edit["segments"] = [seg(round(a, 2), round(b, 2), "highlight")]
+    if brief.music == "ai":
+        edit["music"] = "none"   # the voice and the game carry a stream clip
+    edit["source_audio"] = "keep" if edit["source_audio"] != "mute" else "mute"
+    return edit
 
 
 def tighten(brief: Brief, analysis: dict, words: list[list] | None = None) -> dict:
@@ -269,6 +318,8 @@ def _plan(brief: Brief, analysis: dict, template: str | None, words: list[list] 
         raise ValueError(f"template {template!r} is unknown; use one of {', '.join(TEMPLATES)}")
     if template == "tighten":
         return tighten(brief, analysis, words)
+    if template == "clip":
+        return clip(brief, analysis)
     if (words and len(words) >= 12 and brief.video_type in SPEECH_TYPES and template in (None, "highlights")):
         return speech_highlights(brief, analysis, words)
     template = template or choose_template(brief, analysis)
@@ -292,6 +343,87 @@ def crop_bars(edit: dict, analysis: dict) -> dict:
         box = content_box(bars, s["src_in"], s["src_out"], info["width"], info["height"])
         if box:
             s["crop"] = box
+    return edit
+
+
+AIM_SPREAD = 0.27   # motion more spread out than this is the whole picture moving (a camera turn): no aim
+AIM_SHARE = 0.3     # at least this share of a segment's samples must show one spot of motion
+AIM_PULL = 0.85     # aim a little towards the middle: a moving spot rarely sits exactly at its centroid
+
+
+CORNER = (0.2, 0.25)   # a centroid this far into a corner is HUD (map, kill feed) or a facecam, not the action
+
+
+def _aside(p: list, avoid: list) -> bool:
+    x, y = p[0], p[1]
+    if (x < CORNER[0] or x > 1 - CORNER[0]) and (y < CORNER[1] or y > 1 - CORNER[1]):
+        return True
+    return any(bx <= x <= bx + bw and by <= y <= by + bh for bx, by, bw, bh in avoid)
+
+
+def aim(where: list | None, rate: float, a: float, b: float, crop: list | None = None,
+        size: tuple | None = None, avoid: list | None = None) -> list[float] | None:
+    """Where to aim a shot of source range [a, b): the mean of the samples whose motion is in one spot,
+    as [x, y] fractions of the picture (of the crop box when black bars are cut), or None when
+    the motion is all over or there is too little to follow (the middle is then the right aim)."""
+    if not where:
+        return None
+    pts = [p for p in where[int(a * rate):max(int(a * rate) + 1, int(b * rate))]]
+    spots = [p for p in pts if p and p[2] <= AIM_SPREAD and not _aside(p, avoid or [])]
+    if not pts or len(spots) < AIM_SHARE * len(pts):
+        return None
+    x = sum(p[0] for p in spots) / len(spots)
+    y = sum(p[1] for p in spots) / len(spots)
+    if crop and size:
+        sw, sh = size
+        x = (x * sw - crop[0]) / crop[2]
+        y = (y * sh - crop[1]) / crop[3]
+    return [round(min(1, max(0, 0.5 + (v - 0.5) * AIM_PULL)), 3) for v in (x, y)]
+
+
+def auto_focus(edit: dict, analysis: dict) -> dict:
+    """Aim every shot at its action (used by framing full and split). A focus set by the user or the
+    agent is kept; automatic ones are marked focus_by "auto" and redone when the cut moves."""
+    sig = analysis["signals"]
+    info = sig["info"]
+    for s in edit["segments"]:
+        if s.get("focus") is not None and s.get("focus_by") != "auto":
+            continue
+        panel = (edit.get("panel") or {}).get("box")
+        f = aim(sig.get("where"), sig["rate"], s["src_in"], s["src_out"], s.get("crop"),
+                (info.get("width"), info.get("height")), [panel] if panel else [])
+        if f and max(abs(f[0] - 0.5), abs(f[1] - 0.5)) > 0.03:
+            s["focus"], s["focus_by"] = f, "auto"
+        elif s.get("focus_by") == "auto":
+            s.pop("focus", None)
+            s.pop("focus_by", None)
+    return edit
+
+
+def mark_emphasis(edit: dict, words: list[list] | None, analysis: dict | None) -> dict:
+    """Words said louder than this speaker's usual word (or exclaimed) get emphasis: the streamer
+    caption style shows them red and lower. Stored as source start times in segment "emphasis"."""
+    from .copywriting import SHOUT_DB
+    sig = (analysis or {}).get("signals") or {}
+    loud, rate = sig.get("loudness"), sig.get("rate", 2.0)
+    if not words:
+        return edit
+
+    def peak(w):
+        part = loud[int(w[0] * rate):int(w[1] * rate) + 1] if loud else []
+        return max(part) if part else None
+    peaks = sorted(p for p in map(peak, words) if p is not None)
+    usual = peaks[len(peaks) // 2] if peaks else None
+    for s in edit["segments"]:
+        marked = []
+        for w in s.get("words") or []:
+            p = peak(w)
+            if w[2].rstrip().endswith("!") or (p is not None and usual is not None and p - usual >= SHOUT_DB):
+                marked.append(w[0])
+        if marked:
+            s["emphasis"] = marked
+        else:
+            s.pop("emphasis", None)
     return edit
 
 

@@ -4,6 +4,11 @@ Layouts (framing "band", the default)
   vertical  1080x1920  sharp gameplay band (1.2:1 crop) over a blurred fill, captions above/below
   square    1080x1080  full 16:9 frame over a blurred fill
   wide      1920x1080  full frame, captions over the picture
+Framing "split" (vertical): the facecam (or, without one, the game's minimap) on top and the action
+below in a window aimed like "full". Panel style "card" (default, the stream-clip look): a 690x444
+facecam card over a blurred copy, the action 1080x1112 under it, blur below; "full": a 1080x760 panel
+over a 1080x1160 action window. Captions sit centred on the borders of the action (half over it,
+half over the blur or panel), on a translucent slab (caption_box).
 Framing "full": any orientation is filled edge to edge by a window of the picture with the output's
 shape, placed by each segment's focus (and panned to focus_end), captions over the picture. Works for
 any source size or shape: 720p to 4K, 4:3, ultrawide, phone-vertical.
@@ -57,14 +62,47 @@ def _decoded_size(source: str, hwaccel: str | None) -> tuple[int, int, str | Non
 _q = filter_quote
 
 
+PANEL_H = 760     # framing split, panel style full: height of the top panel (facecam or minimap)
+CARD_TOP, CARD_W, CARD_ASPECT = 60, 0.64, 1.55   # panel style card: a centred card, 64% of the width
+ACTION_SHARE = 0.58                               # ... over an action window this share of the height
+
+
+def split_geometry(edit: dict) -> dict:
+    """Framing split: where the panel and the action go. panel = (x, y, w, h) on the output."""
+    W, H = edit["width"], edit["height"]
+    if (edit.get("panel") or {}).get("style") == "full":
+        return {"style": "full", "panel": (0, 0, W, PANEL_H), "act_y": PANEL_H, "act_h": H - PANEL_H}
+    pw = int(W * CARD_W) // 2 * 2
+    ph = int(pw / CARD_ASPECT) // 2 * 2
+    act_y = CARD_TOP + ph + 6
+    return {"style": "card", "panel": ((W - pw) // 2, CARD_TOP, pw, ph), "act_y": act_y,
+            "act_h": int(H * ACTION_SHARE) // 2 * 2}
+
+
 def _layout(edit: dict) -> dict:
     o = edit["orientation"]
+    W, H = edit.get("width", 1080), edit.get("height", 1920)
+    if o == "vertical" and edit.get("framing") == "split":
+        g = split_geometry(edit)
+        # captions sit ON the borders of the action: half over it, half over the panel or the blur
+        if g["style"] == "full":   # one border: the hook on it, speech low over the action
+            return {"fg_w": W, "fg_h": g["act_h"], "fg_y": g["act_y"], "crop_aspect": W / g["act_h"],
+                    "top_y": g["act_y"] + 40, "line": 120, "big": 106, "small": 54, "bottom_y": g["act_y"] + 130,
+                    "speech": 104, "speech_chars": 16, "hook_mid": g["act_y"], "speech_mid": H - 230,
+                    "emphasis_y": int(H * 0.7)}
+        below = g["act_y"] + g["act_h"]
+        return {"fg_w": W, "fg_h": g["act_h"], "fg_y": g["act_y"], "crop_aspect": W / g["act_h"],
+                "top_y": below + 28, "line": 112, "big": 98, "small": 50, "bottom_y": below + 150, "speech": 100,
+                "speech_chars": 16, "hook_mid": below, "speech_mid": g["act_y"], "emphasis_y": int(H * 0.7)}
+    band = edit.get("framing") != "full"   # framing full fills the frame: no border to sit on
     if o == "vertical":
         return {"fg_w": 1080, "fg_h": 900, "fg_y": 470, "crop_aspect": 1.2, "top_y": 150, "line": 140,
-                "big": 120, "small": 58, "bottom_y": 1440, "speech": 112, "speech_chars": 16}
+                "big": 120, "small": 58, "bottom_y": 1440, "speech": 112, "speech_chars": 16,
+                **({"hook_mid": 470, "speech_mid": 1370, "bottom_mid": 1370} if band else {})}
     if o == "square":
         return {"fg_w": 1080, "fg_h": 608, "fg_y": 236, "crop_aspect": 16 / 9, "top_y": 40, "line": 95,
-                "big": 82, "small": 44, "bottom_y": 920, "speech": 76, "speech_chars": 22}
+                "big": 82, "small": 44, "bottom_y": 920, "speech": 76, "speech_chars": 22,
+                **({"hook_mid": 236, "speech_mid": 844, "bottom_mid": 844} if band else {})}
     return {"fg_w": 1920, "fg_h": 1080, "fg_y": 0, "crop_aspect": 16 / 9, "top_y": 60, "line": 120,
             "big": 104, "small": 56, "bottom_y": 930, "speech": 92, "speech_chars": 28}
 
@@ -84,6 +122,58 @@ def window(src_w: int, src_h: int, W: int, H: int, zoom: float = 1.0) -> tuple[i
 def focus_of(s: dict) -> tuple[list, list]:
     start = list(s.get("focus") or (0.5, 0.5))
     return start, list(s.get("focus_end") or start)
+
+
+MAP_GAP = 4   # pixels kept between the action window and the minimap
+
+
+def minimap_clear(edit: dict, s: dict, src_w: int, src_h: int, cw: int, ch: int) -> tuple[dict, list | None]:
+    """Framing split with the minimap on top: the minimap is shown once, in the panel, so the action
+    window is moved off it (the smallest move that clears it). Returns (the segment with that focus,
+    None), or (the segment as it was, [x, y, w, h]: the minimap's box in the picture, to blur) when
+    no window position clears it. Only the minimap is ever blurred, never player names or the HUD."""
+    p = edit.get("panel") or {}
+    if edit.get("framing") != "split" or p.get("kind") != "minimap" or p.get("file"):
+        return s, None
+    bx, by, bw, bh = p.get("box") or DEFAULT_MINIMAP
+    ox, oy = (s["crop"][0], s["crop"][1]) if s.get("crop") else (0, 0)
+    fw = edit.get("source_width") or src_w + 2 * ox
+    fh = edit.get("source_height") or src_h + 2 * oy
+    x0, y0 = max(0.0, bx * fw - ox), max(0.0, by * fh - oy)
+    x1, y1 = min(float(src_w), (bx + bw) * fw - ox), min(float(src_h), (by + bh) * fh - oy)
+    if x1 <= x0 or y1 <= y0:
+        return s, None   # the black-bar crop already cut it off
+    cw, ch = min(cw, src_w), min(ch, src_h)
+
+    def place(f):
+        wx = min(max(f[0] * src_w - cw / 2, 0), src_w - cw)
+        wy = min(max(f[1] * src_h - ch / 2, 0), src_h - ch)
+        if wx >= x1 or wx + cw <= x0 or wy >= y1 or wy + ch <= y0:
+            return f                                     # already clear
+        moves = []
+        if x1 + MAP_GAP + cw <= src_w:
+            moves.append((x1 + MAP_GAP - wx, (x1 + MAP_GAP + cw / 2) / src_w, f[1]))
+        if x0 - MAP_GAP - cw >= 0:
+            moves.append((wx - (x0 - MAP_GAP - cw), (x0 - MAP_GAP - cw / 2) / src_w, f[1]))
+        if y1 + MAP_GAP + ch <= src_h:
+            moves.append((y1 + MAP_GAP - wy, f[0], (y1 + MAP_GAP + ch / 2) / src_h))
+        if y0 - MAP_GAP - ch >= 0:
+            moves.append((wy - (y0 - MAP_GAP - ch), f[0], (y0 - MAP_GAP - ch / 2) / src_h))
+        if not moves:
+            return None
+        _, nx, ny = min(moves)
+        return [round(nx, 4), round(ny, 4)]
+
+    start, end = focus_of(s)
+    a, b = place(start), place(end)
+    if a is None or b is None:
+        return s, [int(x0) // 2 * 2, int(y0) // 2 * 2, int(x1 - x0 + 1) // 2 * 2, int(y1 - y0 + 1) // 2 * 2]
+    if a == start and b == end:
+        return s, None
+    moved = dict(s, focus=a)
+    if s.get("focus_end"):
+        moved["focus_end"] = b
+    return moved, None
 
 
 def _focus_crop(s: dict, cw: int, ch: int, dur: float) -> str:
@@ -127,39 +217,89 @@ def color_plan(edit: dict, sdr_only: bool = False) -> dict:
     return {"pre": color.tonemap_filter(method), "args": color.tonemap_args(method), "hdr": None, "tonemap": method}
 
 
-def _speech(work, i, words, dur, L, font, W, H, hdr=None):
-    """Word-by-word speech captions where the bottom caption would go (libass, else drawtext)."""
+LABEL_END = 1.25   # the context label is gone by this many seconds into the video
+
+
+def _label(edit: dict, L: dict, dur: float) -> dict | None:
+    """The context label for the first segment: where and how big it is drawn."""
+    text = (edit.get("label") or "").strip()
+    if not text:
+        return None
+    W, H = edit["width"], edit["height"]
+    y = L["fg_y"] + int(L["fg_h"] * 0.22) if edit.get("framing") == "split" else int(H * 0.36)
+    return {"text": text, "x": int(W * 0.33), "y": y, "size": int(L["big"] * 0.95), "end": min(LABEL_END, dur)}
+
+
+def _speech(work, i, words, dur, L, font, W, H, hdr=None, edit=None, s=None, label=None):
+    """Speech captions (and the context label) through libass; drawtext without the extras otherwise.
+    Both styles sit with their middle on the action's lower border (band) or the panel's border
+    (split), over a translucent slab; streamer style shows word cards, shouted or sworn words red and lower."""
+    edit, s = edit or {}, s or {}
+    style = edit.get("caption_style", "highlight")
+    hide = bool(edit.get("censor", True))
+    mid = L.get("speech_mid")
     if has_filter("ass"):
+        emphasis = [round(max(0.0, (t - s["src_in"]) / s["speed"]), 3) for t in s.get("emphasis") or []]
+        size = int(L["speech"] * 1.1) if style == "streamer" else L["speech"]
+        y = mid if mid is not None else L["bottom_y"] + size // 2   # the middle of the line
         p = os.path.join(work, f"s{i}.ass")
         with open(p, "w", encoding="utf-8") as f:
-            f.write(subs.ass(words, dur, W, H, L["bottom_y"], L["speech"], font, L["speech_chars"],
-                             colour=lambda c: color.caption_color(c, hdr)))
+            f.write(subs.ass(words, dur, W, H, y, size, font, L["speech_chars"],
+                             colour=lambda c: color.caption_color(c, hdr), style=style, emphasis=emphasis,
+                             emphasis_y=L.get("emphasis_y", int(H * 0.7)), hide_swears=hide, label=label,
+                             boxed=bool(edit.get("caption_box", True))))
         return [f"ass={_q(p)}:fontsdir={_q(os.path.dirname(font))}"]
     out = []
+    if label:
+        p = os.path.join(work, f"l{i}.txt"); open(p, "w", encoding="utf-8").write(label["text"].replace("|", " ").upper())
+        out.append(f"drawtext=fontfile={_q(font)}:textfile={_q(p)}:fontsize={label['size']}"
+                   f":fontcolor={color.caption_color(subs.LABEL_RGB, hdr)}:borderw=7:bordercolor=black"
+                   f":x={label['x']}-text_w/2:y={label['y']}:enable='between(t,0.05,{label['end']:.2f})'")
+    y = L["bottom_y"] if mid is None else mid - L["speech"] // 2
     for k, (a, b, text) in enumerate(subs.plain(words, dur, L["speech_chars"])):
+        text = " ".join(subs.censor(w) for w in text.split()) if hide else text
         p = os.path.join(work, f"s{i}_{k}.txt"); open(p, "w", encoding="utf-8").write(text)
         out.append(f"drawtext=fontfile={_q(font)}:textfile={_q(p)}:fontsize={L['speech']}"
                    f":fontcolor={color.caption_color('white', hdr)}"
-                   f":borderw=6:bordercolor=black:x=(w-text_w)/2:y={L['bottom_y']}:enable='between(t,{a:.3f},{b:.3f})'")
+                   f":borderw=6:bordercolor=black:x=(w-text_w)/2:y={y}:enable='between(t,{a:.3f},{b:.3f})'")
     return out
 
 
-def _text(work, i, s, dur, L, font, W=0, H=0, speech=None, hdr=None):
+TEXT_BG = "black@0.5"   # the translucent slab behind captions (caption_box)
+
+
+def _box(size: int, line: int, boxed: bool, border: int) -> str:
+    """drawtext styling: a translucent slab behind the line (stacked lines' slabs meet), with a thin
+    outline; without the slab, the classic thick outline."""
+    if not boxed:
+        return f":borderw={border}:bordercolor=black"
+    pad = max(6, (line - size) // 2 + 4)
+    return f":borderw=3:bordercolor=black@0.8:box=1:boxcolor={TEXT_BG}:boxborderw={pad}|{size // 3}"
+
+
+def _text(work, i, s, dur, L, font, W=0, H=0, speech=None, hdr=None, edit=None):
     """Captions and transitions; colours are lowered to paper white when the output is HDR."""
+    label = _label(edit, L, dur) if edit and i == 0 else None
     f, kind = [], s["kind"]
     c = color.caption_color("0xFF2A2A" if kind == "death" else "white", hdr)
     flash = color.caption_color("white", hdr)
-    for j, line in enumerate(x for x in s["top"].split("|") if x):
+    boxed = bool((edit or {}).get("caption_box", True))
+    lines = [x for x in s["top"].split("|") if x]
+    top = L["top_y"]
+    if L.get("hook_mid") is not None and lines:   # the block's middle on the border
+        top = L["hook_mid"] - ((len(lines) - 1) * L["line"] + L["big"]) // 2
+    for j, line in enumerate(lines):
         p = os.path.join(work, f"t{i}_{j}.txt"); open(p, "w", encoding="utf-8").write(line)
         f.append(f"drawtext=fontfile={_q(font)}:textfile={_q(p)}:fontsize={L['big']}:fontcolor={c}"
-                 f":borderw=7:bordercolor=black:x=(w-text_w)/2:y={L['top_y'] + j * L['line']}:alpha='min(1,t/0.12)'")
-    if speech:
-        f += _speech(work, i, speech, dur, L, font, W, H, hdr)
-    elif s["bottom"]:
+                 f"{_box(L['big'], L['line'], boxed, 7)}:x=(w-text_w)/2:y={top + j * L['line']}:alpha='min(1,t/0.12)'")
+    if speech or label:
+        f += _speech(work, i, speech or [], dur, L, font, W, H, hdr, edit, s, label)
+    if not speech and s["bottom"]:
         p = os.path.join(work, f"b{i}.txt"); open(p, "w", encoding="utf-8").write(s["bottom"].replace("|", " "))
         bcolor = color.caption_color("0xFF2A2A" if kind == "death" else "0xFFD400", hdr)
+        y = L["bottom_mid"] - L["small"] // 2 if L.get("bottom_mid") is not None else L["bottom_y"]
         f.append(f"drawtext=fontfile={_q(font)}:textfile={_q(p)}:fontsize={L['small']}:fontcolor={bcolor}"
-                 f":borderw=5:bordercolor=black:x=(w-text_w)/2:y={L['bottom_y']}:alpha='min(1,t/0.2)'")
+                 f"{_box(L['small'], L['small'] + 24, boxed, 5)}:x=(w-text_w)/2:y={y}:alpha='min(1,t/0.2)'")
     if kind in ("death", "finisher"):
         f.append(f"fade=in:st=0:d=0.12:color={flash}")
     if kind == "hook":
@@ -246,6 +386,46 @@ def _broll(edit: dict, s: dict, box: tuple, rate: str, dur: float, look_args: li
     return args, steps, False
 
 
+def _even(expr: str) -> str:
+    return f"trunc({expr}/2)*2"
+
+
+def panel_source(box: list) -> str:
+    """crop for a panel box [x, y, w, h] (fractions of the whole picture, before any bar crop)."""
+    x, y, w, h = box
+    return (f"crop=w='{_even(f'iw*{w}')}':h='{_even(f'ih*{h}')}':x='{_even(f'iw*{x}')}'"
+            f":y='{_even(f'ih*{y}')}'")
+
+
+def _panel(edit: dict, s: dict, timing: str, n: int, hdr, size: tuple) -> tuple[list, str]:
+    """Framing split: the top panel as [pn] of `size` (w, h), from [a] (the recording) or input n
+    (a separate webcam file). A facecam fills the panel; a minimap is shown whole over a blurred copy."""
+    p = edit.get("panel") or {}
+    W, PH = size
+    cover = f"scale={W}:{PH}:force_original_aspect_ratio=increase,crop={W}:{PH},setsar=1"
+    if p.get("file"):
+        if hdr:
+            raise InputError("A separate webcam file can't be shown in HDR output yet.", "Set hdr to sdr.")
+        info = br._probe_one(p["file"], None)
+        if info["hdr"]:
+            raise InputError("The webcam file is HDR; NookCut needs an SDR webcam recording.",
+                             "Export the webcam recording in SDR (normal colour), or give a facecam box instead.")
+        at = max(0.0, s["src_in"] - float(p.get("offset") or 0))
+        args = ["-ss", f"{at:.3f}", "-t", f"{s['src_out'] - s['src_in']:.3f}", "-i", p["file"]]
+        return args, (f"[{n}:v]{color.sdr_filter(info['matrix'])},{timing},{cover},"
+                      f"tpad=stop=-1:stop_mode=clone[pn];[a]nullsink")
+    crop = panel_source(p.get("box") or DEFAULT_MINIMAP)
+    if p.get("kind") == "facecam":
+        return [], f"[a]{crop},{cover}[pn]"
+    fmt = ":format=yuv420p10" if hdr else ""
+    return [], (f"[a]{crop},split[p1][p2];[p1]{cover},gblur=sigma=18,eq=brightness=-0.2[pb];"
+                f"[p2]scale={W}:{PH}:force_original_aspect_ratio=decrease,setsar=1[pf];"
+                f"[pb][pf]overlay=(W-w)/2:(H-h)/2{fmt}[pn]")
+
+
+DEFAULT_MINIMAP = [0.0, 0.0, 0.2, 0.3333]   # top-left: where most shooters put the map
+
+
 def needs_interpolation(edit: dict, s: dict) -> bool:
     """Slow motion needs made-up frames only when the source has too few: source fps x speed below
     the output rate (60 fps at 0.5x gives 30: interpolate; 120 fps at 0.5x gives 60: real frames)."""
@@ -258,19 +438,27 @@ def _segment(edit, i, s, work, font, hwaccel, src_w, src_h, task=None, on_progre
     look = look or color_plan(edit)
     hdr = look["hdr"]
     pre = look["pre"]
+    bars = ""
     if s.get("crop"):  # black bars cut off first, so the layout works with the picture itself
         bx, by, src_w, src_h = s["crop"]
-        pre += f",crop={src_w}:{src_h}:{bx}:{by}"
+        bars = f"crop={src_w}:{src_h}:{bx}:{by}"
     L = _layout(edit)
     enc = encoder_args(encoder, hdr=bool(hdr))
     dur = seg_duration(s)
     zoom = s.get("zoom", 1.0)
     W, H = edit["width"], edit["height"]
     full = edit.get("framing") == "full"
+    split = edit.get("framing") == "split"
     if full:
         # the picture fills the frame: a window of the output's shape, placed by focus
         cw, ch = window(src_w, src_h, W, H, zoom)
         fg_w, fg_h, x, y = W, H, 0, 0
+    elif split:
+        # the action below the panel: a window of that area's shape, placed by focus
+        geo = split_geometry(edit)
+        fg_w, fg_h, x, y = W, geo["act_h"], 0, geo["act_y"]
+        cw, ch = window(src_w, src_h, fg_w, fg_h, zoom)
+        s, map_patch = minimap_clear(edit, s, src_w, src_h, cw, ch)
     elif src_w / src_h >= L["crop_aspect"]:
         # landscape source: crop a band of the layout's aspect and place it at fg_y
         ch = int(src_h / zoom) // 2 * 2
@@ -284,13 +472,13 @@ def _segment(edit, i, s, work, font, hwaccel, src_w, src_h, task=None, on_progre
         if fg_w > W:
             fg_w, fg_h = W, int(W * ch / cw) // 2 * 2
         x, y = (W - fg_w) // 2, (H - fg_h) // 2
-    if full and focus_of(s)[0] != focus_of(s)[1]:
+    if (full or split) and focus_of(s)[0] != focus_of(s)[1]:
         # a pan: enlarge first, then move the window in output pixels, so a slow pan glides
         # instead of stepping by whole (enlarged) source pixels
-        k = W / cw
+        k = fg_w / cw
         fg = (f"scale={int(src_w * k) // 2 * 2}:{int(src_h * k) // 2 * 2}:flags=lanczos,"
-              f"{_focus_crop(s, W, H, dur)},setsar=1")
-    elif full:
+              f"{_focus_crop(s, fg_w, fg_h, dur)},setsar=1")
+    elif full or split:
         fg = f"{_focus_crop(s, cw, ch, dur)},scale={fg_w}:{fg_h}:flags=lanczos,setsar=1"
     else:
         fg = f"crop='min({cw},iw)':'min({ch},ih)',scale={fg_w}:{fg_h}"
@@ -306,11 +494,31 @@ def _segment(edit, i, s, work, font, hwaccel, src_w, src_h, task=None, on_progre
                              "Set hdr to sdr, or remove the B-roll from this segment (update_edit broll: null).")
         extra_in, layer, need_src = _broll(edit, s, (fg_w, fg_h, x, y), rate, dur, look["args"], L)
     picture = ",split[fg][fg2]" if need_src else "[fg]"
-    if (fg_w, fg_h) == (W, H):
-        graph = f"[0:v]{pre},setpts=(PTS-STARTPTS)/{s['speed']},fps={rate},{fg}" + \
+    timing = f"setpts=(PTS-STARTPTS)/{s['speed']},fps={rate}"
+    if split:
+        n = 1 + (1 if s.get("broll") else 0)    # a separate webcam file comes after the B-roll
+        px, py, pw, ph = geo["panel"]
+        panel_in, panel = _panel(edit, s, timing, n, hdr, (pw, ph))
+        extra_in += panel_in
+        patch = ""
+        if map_patch:   # the window can't avoid the minimap: blur it there (it's shown in the panel)
+            mx, my, mw, mh = map_patch
+            patch = (f"split[m1][m2];[m2]crop={mw}:{mh}:{mx}:{my},gblur=sigma=28[mb];"
+                     f"[m1][mb]overlay={mx}:{my}{':format=yuv420p10' if hdr else ''},")
+        action = f"[b]{bars + ',' if bars else ''}{patch}{fg}{picture}"
+        if geo["style"] == "full":
+            graph = f"[0:v]{pre},{timing},split[a][b];{panel};{action};[pn][fg]vstack[base]"
+        else:   # the card and the action over a blurred, darker copy of the whole picture
+            fmt = ":format=yuv420p10" if hdr else ""
+            graph = (f"[0:v]{pre},{timing},split=3[a][b][c];{panel};{action};"
+                     f"[c]{bars + ',' if bars else ''}scale={W // 4}:{H // 4}:force_original_aspect_ratio=increase,"
+                     f"crop={W // 4}:{H // 4},gblur=sigma=10,scale={W}:{H},eq=brightness=-0.22:saturation=0.8[bg];"
+                     f"[bg][fg]overlay=0:{y}{fmt}[t0];[t0][pn]overlay={px}:{py}{fmt}[base]")
+    elif (fg_w, fg_h) == (W, H):
+        graph = f"[0:v]{pre}{',' + bars if bars else ''},{timing},{fg}" + \
             (",split[base][fg2]" if need_src else "[base]")
     else:
-        graph = (f"[0:v]{pre},setpts=(PTS-STARTPTS)/{s['speed']},fps={rate},split[a][b];"
+        graph = (f"[0:v]{pre}{',' + bars if bars else ''},{timing},split[a][b];"
                  f"[a]scale={W // 4}:{H // 4}:force_original_aspect_ratio=increase,crop={W // 4}:{H // 4},"
                  f"gblur=sigma=10,scale={W}:{H},eq=brightness=-0.18:saturation=0.8[bg];[b]{fg}{picture};"
                  f"[bg][fg]overlay={x}:{y}" + (":format=yuv420p10" if hdr else "") + "[base]")
@@ -320,7 +528,7 @@ def _segment(edit, i, s, work, font, hwaccel, src_w, src_h, task=None, on_progre
     if not speech and edit.get("vo_captions") and s.get("_vo_words"):
         speech = s["_vo_words"]   # the voiceover's own words, timed to the spoken line
     graph += f";[{'cv' if layer else 'base'}]" + \
-        ",".join(_text(work, i, s, dur, L, font, W, H, speech, hdr) + [enc["fmt"]]) + "[v]"
+        ",".join(_text(work, i, s, dur, L, font, W, H, speech, hdr, edit) + [enc["fmt"]]) + "[v]"
     out = os.path.join(work, f"seg{i:03d}.mov")
     cmd = ["ffmpeg", "-v", "error", "-y"] + enc["pre"] + look["args"]
     if hwaccel:
@@ -497,8 +705,19 @@ def _window_boxes(edit: dict, s: dict) -> str:
     """Contact sheet, framing "full": outline what the viewer sees (yellow at the start, cyan where a
     pan ends), so a wrong focus shows before anything is rendered."""
     W, H, z = edit["width"], edit["height"], max(1.0, float(s.get("zoom") or 1))
+    if edit.get("framing") == "split":
+        H = split_geometry(edit)["act_h"]
     bw, bh = f"min(iw\\,ih*{W}/{H})/{z}", f"min(ih\\,iw*{H}/{W})/{z}"
     out = ""
+    sw = s["crop"][2] if s.get("crop") else edit.get("source_width")
+    sh = s["crop"][3] if s.get("crop") else edit.get("source_height")
+    if edit.get("framing") == "split" and sw and sh:
+        # the same move off the minimap as the render; a red box marks where it has to be blurred
+        s, patch = minimap_clear(edit, s, sw, sh, *window(sw, sh, W, H, z))
+        if patch:
+            k = f"iw/{sw}"
+            out += (f",drawbox=x={patch[0]}*{k}:y={patch[1]}*{k}:w={patch[2]}*{k}:h={patch[3]}*{k}"
+                    f":color=red@0.6:t=fill")
     start, end = focus_of(s)
     for (fx, fy), col in ((start, "yellow"), (end, "cyan")) if end != start else ((start, "yellow"),):
         out += (f",drawbox=w={bw}:h={bh}:x=max(0\\,min(iw-w\\,{fx}*iw-w/2)):"
@@ -530,7 +749,11 @@ def preview(edit: dict, out_png: str, task: Task | None = None) -> str:
             cp = os.path.join(work, f"c{i}.txt"); open(cp, "w", encoding="utf-8").write(cap or " ")
             out = os.path.join(work, f"p{i:03d}.png")
             bars = f",crop={s['crop'][2]}:{s['crop'][3]}:{s['crop'][0]}:{s['crop'][1]}" if s.get("crop") else ""
-            source, at, pre_args, colour = edit["source"], mid, look["args"], look["pre"] + bars
+            panel = ""
+            if edit.get("framing") == "split" and not (edit.get("panel") or {}).get("file"):
+                x0, y0, w0, h0 = (edit.get("panel") or {}).get("box") or DEFAULT_MINIMAP
+                panel = (f",drawbox=x=iw*{x0}:y=ih*{y0}:w=iw*{w0}:h=ih*{h0}:color=magenta:t=10")
+            source, at, pre_args, colour = edit["source"], mid, look["args"], look["pre"] + panel + bars
             b = s.get("broll")
             local = (mid - s["src_in"]) / s["speed"]
             if b and float(b.get("start") or 0) <= local <= (b["end"] if b.get("end") is not None else dur):
@@ -542,7 +765,7 @@ def preview(edit: dict, out_png: str, task: Task | None = None) -> str:
                     at %= length   # short clips loop in the render; the sheet shows the same frame
                 label += f"  B-roll: {b['file']} ({b.get('layout', 'cover')})"
                 open(lp, "w", encoding="utf-8").write(label)
-            if edit.get("framing") == "full" and colour != "null":
+            if edit.get("framing") in ("full", "split") and colour != "null":
                 colour += _window_boxes(edit, s)
             vf = (f"{colour},scale=480:270,drawtext=fontfile={_q(font)}:textfile={_q(lp)}:fontsize=18:fontcolor=yellow"
                   f":box=1:boxcolor=black@0.7:x=6:y=6,drawtext=fontfile={_q(font)}:textfile={_q(cp)}:fontsize=26"

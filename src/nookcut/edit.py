@@ -10,6 +10,8 @@ edit.json:
      "hits": [643.0], "impact": null, "focus": [0.62, 0.5], "focus_end": [0.4, 0.5]}
   ]
 }
+framing "split" (vertical) stacks a panel on top ("panel": {"kind": "facecam"|"minimap", "box": [x, y, w, h]
+as fractions of the whole picture, or "file": a separate webcam recording, "offset": s}) over the action.
 framing "full" fills the frame with a window of the picture (no blurred fill); focus is that window's
 centre as fractions of the picture (0.5, 0.5 = middle), focus_end makes it pan there over the segment.
 '|' in captions forces a line break. kind drives transitions and music:
@@ -81,8 +83,23 @@ def _point(v) -> bool:
 
 def validate(edit: dict, source_duration: float | None = None) -> list[str]:
     errors = []
-    if edit.get("framing", "band") not in ("band", "full"):
-        errors.append(f"framing {edit.get('framing')!r} is unknown; use band or full")
+    if edit.get("framing", "band") not in ("band", "full", "split"):
+        errors.append(f"framing {edit.get('framing')!r} is unknown; use band, full or split")
+    if edit.get("framing") == "split":
+        p = edit.get("panel") or {}
+        if edit.get("orientation") != "vertical":
+            errors.append("framing split is for vertical videos")
+        if p.get("box") is not None and not (isinstance(p["box"], (list, tuple)) and len(p["box"]) == 4 and
+                                             all(isinstance(v, (int, float)) and 0 <= v <= 1 for v in p["box"])):
+            errors.append("panel box must be [x, y, width, height], each 0-1 (fractions of the picture)")
+        if p.get("kind") not in (None, "facecam", "minimap"):
+            errors.append("panel kind must be facecam or minimap")
+        if p.get("style") not in (None, "card", "full"):
+            errors.append("panel style must be card or full")
+    if edit.get("caption_style", "highlight") not in ("highlight", "streamer"):
+        errors.append("caption_style must be highlight or streamer")
+    if len(edit.get("label") or "") > 40:
+        errors.append("label must be at most 40 characters")
     for i, s in enumerate(edit["segments"]):
         if s["kind"] not in KINDS:
             errors.append(f"segment {i}: unknown kind {s['kind']!r}")

@@ -62,7 +62,13 @@ download they run themselves; after that it works offline), and carry on without
 | game | game name, if gameplay | - |
 | platforms | YouTube Shorts, TikTok, Reels, Facebook Reels, YouTube | Shorts + TikTok + Reels |
 | orientation | vertical / square / wide | from platforms |
-| framing | band (sharp band over a blurred copy) or full (the picture fills the frame); see "Framing" | band; full only when the user picks it |
+| framing | band (sharp band over a blurred copy), full (the picture fills the frame) or split (vertical: facecam, else the minimap, on top; the action below); see "Framing" | band; full or split only when the user picks it |
+| facecam | split: where their webcam is in the recording ("x,y,w,h" fractions, read off `get_frames`), or a separate webcam file (+ `facecam_offset` seconds) | none: the minimap is used |
+| caption_box | a translucent dark slab behind captions; captions sit centred on the gameplay's borders (half over the gameplay, half over the blur or the panel) | on |
+| caption_style | highlight (a phrase, the spoken word yellow) or streamer (1-2 word cards, hard cuts; shouted or sworn words red and lower) | highlight; streamer for stream clips |
+| label | a short context label for the first second, e.g. "ARGONAUT\|OPERATOR" (who or what the clip is about) | none |
+| terms | names speech-to-text gets wrong: game terms, players, places | none |
+| cues | on-screen signs that mark moments (a kill icon, a victory banner): `[{"label", "t", "box"}]` | none |
 | max_duration | seconds; vertical videos are capped at 140 (aim for 138-140 when the user wants the longest cut) | 60 |
 | region | audience region/country | global |
 | language | caption language | en |
@@ -114,20 +120,36 @@ claim. Keep it to the 3-5 most useful points.
    `key_moments`. For talks, sports and tutorials, deaths don't apply: the highlights template picks
    the moments with the most motion and sound, and `key_moments` with labels pin the parts the user
    cares about (the label becomes that moment's caption).
-2. `plan_edit` (auto template: comeback / victory / highlights). If the user wants the **whole**
+   **Signs on screen (`cues`).** When the game shows a sign at the moments that matter (a kill icon
+   in the kill feed, a "VICTORY" banner, a round-win screen), ask the user for one time it shows, find
+   it with `get_frames` (`source: true`), and pass `cues: [{"label": "kill", "t": "10:42", "box": [x, y,
+   w, h]}]` with a box tight around the sign (fractions of the picture). NookCut finds every other
+   time it appears (the analysis `cues` line) and builds the edit around them; a label with win,
+   victory or final marks the win at its last appearance. If the line has a `note`, the box was too
+   loose or the time was wrong: fix them and analyze again.
+2. **Stream clips** (a streamer's reaction to one fight, kill or fail): use template `clip` (one
+   continuous take ending just after the biggest moment, no cards, no generated music), framing
+   `split` with their `facecam` (panel_style `card`: a facecam card over blur, the gameplay big below),
+   caption_style `streamer`, a `label` naming what the clip is about, and `terms` for the game's names.
+   That's the look of the clips streamers post: the voice and the game carry it, the text only helps.
+   Swear words are censored in captions (F*CK) unless the user turns `censor` off.
+3. `plan_edit` (auto template: comeback / victory / highlights). If the user wants the **whole**
    talk/podcast/tutorial with the dead air removed rather than a short, use template `tighten`
    (the analysis `pauses` line says whether there are pauses to cut); it ignores max_duration and
    adds no generated music. Captions come from the built-in
    library in the brief's language. If no pack exists for that language, captions come out in
    English and the result says so: translate them yourself, or tell the user they can add a
    pack with `nookcut copy init <language>`.
-3. **Speech** (when the analysis `speech` shows words): `get_edit` lists what is said in each
+4. **Speech** (when the analysis `speech` shows words). If it has a `check` list, those spots may be
+   one of the user's `terms` misheard: look at them and fix the segment's `words` with `update_edit`. `get_edit` lists what is said in each
    segment, and `get_transcript` gives every sentence with its time. Talking and tutorial videos are
-   already cut on whole sentences. Use real quotes for the hook and titles when they are stronger
+   already cut on whole sentences. For other videos, a line exclaimed or shouted later in the video
+   becomes the hook caption on its own (the plan's `hook` line says which; check its spelling), and
+   `suggest_copy` lists `hook_quotes` said in the video first among the hook options. Use real quotes for the hook and titles when they are stronger
    than library copy (quote exactly; never put words in the speaker's mouth). Fix a misheard word
    in that segment's `words` with `update_edit`; set `words` to `[]` to hide speech captions on a
    segment. When you move `src_in`/`src_out`, avoid cutting mid-sentence (check `get_transcript`).
-4. `suggest_copy` for alternatives; apply the best with `update_edit` (or your research when
+5. `suggest_copy` for alternatives; apply the best with `update_edit` (or your research when
    online):
    - hook (segment 0): curiosity + stakes in <= 6 words, e.g. "I DIED 7 TIMES|TO GET THIS"
    - vertical: <= 16 characters per line, `|` breaks lines, max 2 lines on top
@@ -140,22 +162,22 @@ claim. Keep it to the 3-5 most useful points.
      "Hey guys" or any greeting or intro before the hook, "don't forget to like and subscribe"
    - `music_style`: taiko (samurai, martial, historical), pulse (shooters, sci-fi, esports, tech),
      cinematic (bosses, fantasy, epic, sports)
-5. **Voiceover** (optional): write a short line for a segment with `update_edit` `{"i": n, "vo": "..."}`
+6. **Voiceover** (optional): write a short line for a segment with `update_edit` `{"i": n, "vo": "..."}`
    (about 2.5 words per second of segment; facts only from what you saw or the user said).
    `render_video`'s checks say if a line runs long: shorten it. Don't talk over the recording's
    own speech. The default voice is the computer's own and sounds synthetic; say so, and mention
    NOOKCUT_TTS_COMMAND for a natural voice they've installed. Never install a voice engine yourself.
-6. **B-roll** (only with a `broll_dir`): the plan's `broll` line says what was placed and why.
+7. **B-roll** (only with a `broll_dir`): the plan's `broll` line says what was placed and why.
    `list_broll` shows the user's files (with pictures). Put one where it shows what is being said,
    with `update_edit` `{"i": n, "broll": {"file": name, "layout": "cover", "start": s, "end": s}}`
    (`inset` with `main` for picture-in-picture, `split` for side by side). Keep the speaker visible
    in the hook and when they make their main point. Use only the user's own files.
-7. Black bars (cinematic letterbox) are cut off automatically in vertical and square videos; if
+8. Black bars (cinematic letterbox) are cut off automatically in vertical and square videos; if
    the user wants the cinematic bars, set that segment's `crop` to null with `update_edit`.
-8. `preview_plan` returns the contact sheet as an image. Look at it and fix obviously bad picks
+9. `preview_plan` returns the contact sheet as an image. Look at it and fix obviously bad picks
    (black frames, menus, loading screens) with `update_edit`. Then show the user the preview and
    the segment list and **get approval before rendering**.
-9. **Self-check, shown to the user with the plan** (fix anything that fails first):
+10. **Self-check, shown to the user with the plan** (fix anything that fails first):
    - [ ] the hook works in under 3 s, with no intro, and the picture moves in the first second
    - [ ] one idea, and the video delivers what the hook promised
    - [ ] every claim comes from the footage, the user or a cited source
@@ -167,8 +189,8 @@ claim. Keep it to the 3-5 most useful points.
 ## Framing: any game, any recording size
 
 NookCut takes any recording: 720p to 4K, 4:3, ultrawide (21:9, 32:9), phone-vertical, HDR, 30 to
-120 fps. The analysis `info` line gives its size. There are two ways to fill a vertical or square
-frame:
+120 fps. The analysis `info` line gives its size. There are three ways to fill a vertical frame
+(band and full also work for square):
 
 - **band** (the default): a sharp band of the picture over a blurred, darker copy, with captions on
   the blur. It keeps more of the screen, so it suits strategy games, menus, maps and small text.
@@ -177,6 +199,13 @@ frame:
   bordered clips, and Meta's originality guidance names "adding borders" as a low-value edit to
   someone else's content. Facebook hasn't published a rule on blurred backgrounds, so present this
   as creator reports, not fact.
+- **split** (vertical only): a panel on top and the action below, the usual gaming-Shorts look. The
+  panel is the streamer's **facecam** when there is one (`facecam`: its box in the recording, or a
+  separate webcam file), and otherwise the game's **minimap**, found as the screen corner that stays
+  still while the game moves (or the `minimap` box the user gives). The plan's `panel` line says
+  which and whether it was a guess; `preview_plan` outlines it in magenta. If it's wrong, fix it with
+  `update_edit` `panel: {"box": [x, y, w, h]}`. Offer split when the recording has a facecam, or for
+  shooters and MOBAs with a minimap.
 
 **The user decides, and can change it any time.** Use band unless the user picks full. Never
 switch on your own, even for Facebook. When the platforms include Facebook Reels, or the user
@@ -184,14 +213,18 @@ mentions blur, borders, bars or "full screen", add one line to the brief message
 (the default) or full-bleed (the gameplay fills the screen)?" Don't ask again after they answer.
 - Before planning: `create_project` / `auto_edit` with `framing`.
 - After a plan or a render: when the user says "make it full-bleed / full screen / no blur" or
-  "back to the blurred style", call `update_edit` with `framing` (`full` or `band`). Cuts, captions,
+  "back to the blurred style" or "facecam on top", call `update_edit` with `framing` (`full`, `band`
+  or `split`). Cuts, captions,
   music and voiceover stay as they are; with full, aim the shots (below), show `preview_plan`, then
   `render_video` again. It's also saved in the brief, so a later `plan_edit` keeps it.
-- In a terminal: `nookcut framing <project> full` (or `band`), then `nookcut render <project>`.
+- In a terminal: `nookcut framing <project> full` (or `band`, `split`), then `nookcut render <project>`.
 
-**Aim every shot** (framing full). A 9:16 window of a 16:9 recording is under a third of its width,
-so the centre is often wrong. Look at the recording with `get_frames` (`source: true`), then set each
-segment's `focus` with `update_edit`. Focus is `[x, y]` as fractions of the picture: `[0.5, 0.5]` is
+**Check the aim of every shot** (framing full and split). A 9:16 window of a 16:9 recording is under a
+third of its width, so the centre is often wrong. NookCut aims each shot at where the picture moves
+(the plan marks those `aimed: automatically`) and keeps the middle when the whole picture moves (a
+camera turn) or nothing does. Check it on `preview_plan`; to fix a shot, look at the recording with
+`get_frames` (`source: true`) and set that segment's `focus` with `update_edit` (a focus you set is
+never changed again; `null` hands it back to automatic aiming). Focus is `[x, y]` as fractions of the picture: `[0.5, 0.5]` is
 the middle, `[0.3, 0.5]` is left of centre. The same numbers work at any resolution.
 - First-person shooters: the crosshair sits at the middle, so `[0.5, 0.5]` usually works.
 - Third-person and open-world games: aim at the character, usually a little below the middle, or at
@@ -203,8 +236,8 @@ the middle, `[0.3, 0.5]` is left of centre. The same numbers work at any resolut
 - `zoom` 1.5-2 frames tighter (a face, an item), but it enlarges the recording further.
 
 `preview_plan` outlines each window on the contact sheet (yellow at the start, cyan where a pan
-ends). Fix the focus until the subject is inside every outline, then show the user. `auto_edit` and
-`plan_edit` aim at the middle; with framing full, always check and fix the focus before rendering.
+ends). Fix the focus until the subject is inside every outline, then show the user. Automatic aims
+follow motion, so they can pick a moving crowd or a flashing effect over the player: always check.
 If you can't see images, ask the user where the action is in each shot ("left, middle or right?")
 and use 0.25, 0.5 or 0.75; if they don't know, keep the middle, or use band for that video.
 
@@ -225,9 +258,17 @@ time. Ultrawide recordings show the smallest share of the screen, so aim them ca
 **What full framing brings back.** The band layout cut off the top and bottom of the screen; full
 framing shows the whole height, and with it everything at the edges: player names and gamer tags,
 chat, party lists, notifications, the game's own subtitles (which may carry swearing), HUD pop-ups
-and gore. NookCut can't blur part of the picture, so aim or zoom the window away from it, or pick
-another moment. Check the rendered frames (`verify_video`) for this every time. The corner HUD
-(minimap, health, kill feed) is often cut off; let the captions carry the story.
+and gore. **Player names and gamer tags are fine to show**, in vertical and wide videos alike: don't
+re-aim, zoom or pick another moment to hide them, and don't ask for them to be blurred. For chat,
+notifications, subtitles with swearing and gore, aim or zoom the window away, or pick another
+moment, and check the rendered frames (`verify_video`). The corner HUD (minimap, health, kill feed) is
+often cut off; let the captions carry the story, or use split to show the minimap.
+
+**The minimap shows once.** In split framing without a facecam, the minimap is in the top panel,
+so NookCut moves each shot's window off the minimap in the action below (the preview's yellow outline
+shows where it went). When no window position can leave it out, only the minimap's box is blurred
+there (a red box on the preview); nothing else is ever blurred. Wide videos have no panel: the whole
+picture shows as recorded, minimap included.
 
 **For any game, also:**
 - Keep the hook and the cover free of gore and strong swearing: platforms can limit reach and ads
