@@ -19,6 +19,8 @@ VOICEOVER = ("off", "captions")
 # Upload length caps in seconds for the short-form surfaces (check platform help pages; they change).
 PLATFORM_MAX = {"youtube_shorts": 180, "tiktok": 600, "instagram_reels": 180,
                 "facebook_reels": 90, "youtube": 43200, "x": 140}
+# House rule: vertical videos run at most 140 s (aim for 138-140 s when the user wants the longest cut).
+VERTICAL_MAX = 140.0
 # Forgiving inputs: what people (and small models) type -> the canonical value.
 ALIASES = {
     "orientation": {"vertical": ("portrait", "9:16", "9x16", "tall", "shorts", "reels", "tiktok"),
@@ -138,6 +140,9 @@ class Brief:
             self.platforms = self.platforms.split(",")
         self.platforms = list(dict.fromkeys(canonical("platform", p) for p in self.platforms if str(p).strip()))
         self.max_duration = seconds(self.max_duration)
+        self._capped_from = None
+        if self.orientation == "vertical" and self.max_duration > VERTICAL_MAX:
+            self._capped_from, self.max_duration = self.max_duration, VERTICAL_MAX
         if isinstance(self.key_moments, (str, dict)):
             self.key_moments = [self.key_moments]
         self.key_moments = [moment(m) for m in self.key_moments or []]
@@ -176,6 +181,9 @@ class Brief:
         if unknown:
             raise ValueError(f"platform {unknown[0]!r} is unknown; use any of {', '.join(PLATFORM_MAX)}")
         warnings = []
+        if self._capped_from:
+            warnings.append(f"vertical videos are capped at {VERTICAL_MAX:g}s; max_duration lowered from "
+                            f"{self._capped_from:g}s to {VERTICAL_MAX:g}s")
         for p in self.platforms:
             cap = PLATFORM_MAX.get(p)
             if cap and self.max_duration > cap:

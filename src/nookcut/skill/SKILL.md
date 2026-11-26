@@ -63,7 +63,7 @@ download they run themselves; after that it works offline), and carry on without
 | platforms | YouTube Shorts, TikTok, Reels, Facebook Reels, YouTube | Shorts + TikTok + Reels |
 | orientation | vertical / square / wide | from platforms |
 | framing | band (sharp band over a blurred copy) or full (the picture fills the frame); see "Framing" | band; full only when the user picks it |
-| max_duration | seconds | 60 |
+| max_duration | seconds; vertical videos are capped at 140 (aim for 138-140 when the user wants the longest cut) | 60 |
 | region | audience region/country | global |
 | language | caption language | en |
 | music | AI original (copyright-free), none, or their own file | ai |

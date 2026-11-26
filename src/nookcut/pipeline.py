@@ -263,6 +263,10 @@ def describe(edit: dict) -> dict:
     if edit["template"] == "tighten":
         out["note"] = (f"{edit.get('removed_s', 0):.0f} s of pauses cut out; the whole talk is kept, so max_duration "
                        "doesn't apply. No generated music under jump cuts.")
+        from .brief import VERTICAL_MAX
+        if out["length"] > VERTICAL_MAX and (edit.get("orientation") or "vertical") == "vertical":
+            out["note"] += (f" It runs {out['length']:.0f} s, over the {VERTICAL_MAX:g} s limit for vertical videos: "
+                            "use a short template, or make it wide.")
     return out
 
 
@@ -561,8 +565,11 @@ def make_from_script(project: str, brief: Brief, script_text: str, out_name: str
     warnings = brief.validate()
     warnings = [w for w in warnings if "max_duration" not in w]   # a script is as long as it is
     guess = sc.estimate(script_lines)
+    from .brief import PLATFORM_MAX, VERTICAL_MAX
+    if brief.orientation == "vertical" and guess > VERTICAL_MAX:
+        warnings.append(f"the script runs about {guess:.0f} s; vertical videos should be {VERTICAL_MAX:g} s at most, "
+                        "so shorten the script")
     for plat in brief.platforms:
-        from .brief import PLATFORM_MAX
         if PLATFORM_MAX.get(plat) and guess > PLATFORM_MAX[plat]:
             warnings.append(f"the script runs about {guess:.0f} s; {plat} allows up to {PLATFORM_MAX[plat]} s")
     with open(os.path.join(project, "script.txt"), "w", encoding="utf-8") as f:

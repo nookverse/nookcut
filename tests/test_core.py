@@ -80,8 +80,17 @@ class Story(unittest.TestCase):
         self.assertEqual(choose_template(self.brief(video_type="talking"), fake_analysis()), "highlights")
 
     def test_brief_warnings(self):
-        w = Brief(title="t", source="s", max_duration=200, platforms=["youtube_shorts"]).validate()
+        w = Brief(title="t", source="s", max_duration=200, platforms=["youtube_shorts"], orientation="wide").validate()
         self.assertTrue(any("180" in x for x in w))
+
+    def test_vertical_cap(self):
+        b = Brief(title="t", source="s", max_duration="3:00")
+        self.assertEqual(b.max_duration, 140)
+        self.assertTrue(any("capped at 140" in x for x in b.validate()))
+        self.assertEqual(Brief(title="t", source="s", max_duration=139).max_duration, 139)
+        self.assertEqual(Brief(title="t", source="s", max_duration=200, orientation="wide").max_duration, 200)
+        e = plan(self.brief(max_duration=600), fake_analysis())
+        self.assertLessEqual(total(e), 140)
 
 
 class OfflineCopy(unittest.TestCase):
