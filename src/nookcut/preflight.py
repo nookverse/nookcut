@@ -218,7 +218,9 @@ def machine() -> dict:
     model = ""
     if platform.system() == "Darwin":
         # the model identifier (Mac15,12) no longer says "Air", the model name does
-        m = re.search(r"Model Name:\s*(.+)", _out(["system_profiler", "SPHardwareDataType"]))
+        # full path: the shared server runs under launchd, whose PATH has no /usr/sbin
+        tool = shutil.which("system_profiler") or "/usr/sbin/system_profiler"
+        m = re.search(r"Model Name:\s*(.+)", _out([tool, "SPHardwareDataType"]))
         model = m.group(1).strip() if m else ""
     return {"memory_gb": round(memory / GB, 1) if memory else None, "cpus": os.cpu_count() or 2,
             "model": model or None, "fanless": "MacBook Air" in model}
